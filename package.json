@@ -1,0 +1,81 @@
+{
+	"name": "terracotta",
+	"displayName": "Terracotta",
+	"description": "Provide code editor features for the Terracotta language",
+	"version": "0.0.1",
+	"publisher": "mrawesomeowl",
+	"repository": "",
+	"engines": {
+		"vscode": "^1.74.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"onLanguage:terracotta"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"languages": [
+			{
+				"id": "terracotta",
+				"extensions": [
+					".tc"
+				],
+				"configuration": "./language-configuration.json"
+			}
+		],
+		"configuration": {
+			"title": "Terracotta",
+			"properties": {
+				"terracotta.trace.server": {
+					"scope": "window",
+					"type": "string",
+					"enum": [
+						"off",
+						"messages",
+						"verbose"
+					],
+					"default": "verbose"
+				},
+				"terracotta.installPath": {
+					"scope": "resource",
+					"type": "string",
+					"description": "The path to the terracotta installation (should point to the uppermost folder of the installation, not to anything inside)",
+					"default": ""
+				}
+			}
+		},
+		"configurationDefaults": {
+			"editor.quickSuggestions": {
+				"other": "on",
+				"comments": "off",
+				"strings": "on"
+			},
+			"editor.wordBasedSuggestions": "off"
+		},
+		"grammars": [
+			{
+				"language": "terracotta",
+				"scopeName": "source.terracotta",
+				"path": "./syntaxes/main.json"
+			}
+		]
+	},
+	"scripts": {
+		"vscode:prepublish": "npm run compile",
+		"compile": "tsc -p ./",
+		"lint": "eslint \"src/**/*.ts\"",
+		"watch": "tsc -watch -p ./"
+	},
+	"dependencies": {
+		"bun": "^1.0.30",
+		"vscode-languageclient": "^7.0.0",
+		"vscode-languageserver": "^9.0.1"
+	},
+	"devDependencies": {
+		"@types/node": "^18",
+		"@types/vscode": "^1.73.0",
+		"typescript": "^5.4.2"
+	}
+}

@@ -1,0 +1,612 @@
+{
+    "scopeName": "source.terracotta",
+    "patterns": [ 
+        {"include": "#commentedLine"},
+        {"include": "#controlKeyword"},
+        {"include": "#selectKeyword"},
+        {"include": "#paramModifierKeyword"},
+        {"include": "#headerKeyword"},
+        {"include": "#expression"},
+        {"include": "#semicolon"}
+    ],
+    "repository": {
+        "expression": {
+            "patterns": [ 
+                {"include": "#commentedLine"},
+                {"include": "#braces"},
+                {"include": "#string"},
+                {"include": "#number"},
+                {"include": "#typeConstructor"},
+                {"include": "#domain"},
+                {"include": "#conditionCall"},
+                {"include": "#parentheticFunctionCall"},
+                {"include": "#arglessFunctionCall"},
+                {"include": "#callCustomFunction"},
+                {"include": "#controlKeyword"},
+                {"include": "#variable"},
+                {"include": "#operator"},
+                {"include": "#typeAnnotationAnywhere"}
+            ],
+            "repository": {
+                "number": {
+                    "match": "(?:(?<![A-z0-9_]\\s*)-)?(\\d*\\.?\\d+)",
+                    "name": "constant.numeric.tc"
+                },
+                "callCustomFunction": {
+                    "patterns": [
+                        {
+                            "match": "(?<=^|(?:;?\\W+))(call|start)(?![\\w])\\s*(\\[\\]|\\[(?:\\\\\\]|[^\\]])*[^\\\\]\\]|\\[.*|\\w*)?(\\s*:\\s*\\w+)?",
+                            "captures": {
+                                "1": {
+                                    "name": "keyword.control.tc"
+                                },
+                                "2": {
+                                    "patterns": [{"include":"#advNameFunc"}],
+                                    "name": "entity.name.function.tc"
+                                },
+                                "3": {
+                                    "patterns": [{"include": "#standaloneTypeName"},{"include":"#operator"}]
+                                }
+                            }
+                        }
+                    ]
+                },
+                "variable": {
+                    "patterns": [
+                        {"include": "#variablePattern"}
+                    ],
+                    "repository": {
+                        "variablePattern": {
+                            "match": "(?<=^|(?:;?\\W+))(local|global|saved|line)(?![\\w])(?:\\s*(\\[\\]|\\[(?:\\\\\\]|[^\\]])*[^\\\\]\\]|\\[.*|\\w*)(\\s*\\:(\\s*\\w+)?)?)?",
+                            "captures": {
+                                "3": {
+                                    "name": "keyword.operator.tc"
+                                },
+                                "4": {
+                                    "patterns": [
+                                        {"include": "#standaloneTypeName"},
+                                        {
+                                            "match": ".+",
+                                            "name": "entity.name.type.tc support.class.tc tc.type df.item"
+                                        }
+                                    ]
+                                },
+                                "2": {
+                                    "patterns": [
+                                        {
+                                            "patterns": []
+                                        },
+                                        {
+                                            "patterns": [{"include":"#advName"}],
+                                            "name": "string.quoted.tc"
+                                        }
+                                    ],
+                                    "name": "variable.other.tc"
+                                },
+                                "1": {
+                                    "patterns": [{"include": "#variableScope"}]
+                                }
+                            }
+                        },
+                        "variableScope": {
+                            "patterns": [
+                                {"include": "#localScope"},
+                                {"include": "#savedScope"},
+                                {"include": "#globalScope"},
+                                {"include": "#lineScope"}
+                            ],
+                            "repository":{
+                                "localScope": {
+                                    "match": "local",
+                                    "name": "support.class.tc meta.var.expr.tc meta.definition.variable df.item.variable.local.tc"
+                                },
+                                "savedScope": {
+                                    "match": "saved",
+                                    "name": "support.class.tc meta.var.expr.tc meta.definition.variable df.item.variable.saved.tc"
+                                },
+                                "globalScope": {
+                                    "match": "global",
+                                    "name": "support.class.tc meta.var.expr.tc meta.definition.variable df.item.variable.game.tc"
+                                },
+                                "lineScope": {
+                                    "match": "line",
+                                    "name": "support.class.tc meta.var.expr.tc meta.definition.variable df.item.variable.line.tc"
+                                }
+                            }
+                        }
+                    }
+                },
+                "string": {
+                    "patterns": [
+                        {"include": "#styledDoubleString"},
+                        {"include": "#styledSingleString"},
+                        {"include": "#doubleString"},
+                        {"include": "#singleString"}
+                    ],
+                    "repository": {
+                        "doubleString": {
+                            "match": "(\"(?:[^\"\\\\]|\\\\.)*(?:\"|$|\\\\))",
+                            "name": "string.quoted.double.tc",
+                            "captures": {
+                                "1": {
+                                    "patterns": [
+                                        {"include": "#escapedChar"}
+                                    ]
+                                }
+                            }
+                        },
+                        "styledDoubleString": {
+                            "match": "(?:(?<=\\W)|^)s\"((?:[^\"\\\\]|\\\\.)*(?:\"|$|\\\\))",
+                            "name": "string.quoted.double.tc df.item.styled-text.tc",
+                            "captures": {
+                                "1": {
+                                    "patterns": [
+                                        {"include": "#escapedChar"}
+                                    ]
+                                }
+                            }
+                        },
+                        "singleString": {
+                            "match": "('(?:[^'\\\\]|\\\\.)*(?:'|$|\\\\))",
+                            "name": "string.quoted.single.tc",
+                            "captures": {
+                                "1": {
+                                    "patterns": [
+                                        {"include": "#escapedChar"}
+                                    ]
+                                }
+                            }
+                        },
+                        "styledSingleString": {
+                            "match": "(?:(?<=\\W)|^)s'((?:[^'\\\\]|\\\\.)*(?:'|$|\\\\))",
+                            "name": "string.quoted.single.tc df.item.styled-text.tc",
+                            "captures": {
+                                "1": {
+                                    "patterns": [
+                                        {"include": "#escapedChar"}
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "domain": {
+                    "patterns": [
+                        {"include": "#genericActionDomain"},
+                        {"include": "#genericValueDomain"},
+                        {"include": "#genericConditionDomain"}
+                    ],
+                    "repository": {
+                        "target": {
+                            "patterns": [
+                                {"include": "#defaultTarget"},
+                                {"include": "#defaultEntityTarget"},
+                                {"include": "#selectionTarget"},
+                                {"include": "#selectionEntitiesTarget"},
+                                {"include": "#killerTarget"},
+                                {"include": "#killerEntityTarget"},
+                                {"include": "#damagerTarget"},
+                                {"include": "#damagerEntityTarget"},
+                                {"include": "#shooterTarget"},
+                                {"include": "#shooterEntityTarget"},
+                                {"include": "#victimTarget"},
+                                {"include": "#victimEntityTarget"},
+                                {"include": "#allTarget"},
+                                {"include": "#allEntitiesTarget"},
+                                {"include": "#allMobsTarget"},
+                                {"include": "#projectileTarget"},
+                                {"include": "#lastSpawnedEntityTarget"}
+                            ],
+                            "repository": {
+                                "defaultTarget": {
+                                    "match": "default",
+                                    "name": "df.target.default.player.tc"
+                                },
+                                "defaultEntityTarget": {
+                                    "match": "defaultEntity",
+                                    "name": "df.target.default.entity.tc"
+                                },
+                                "selectionTarget": {
+                                    "match": "selection",
+                                    "name": "df.target.selection.player.tc"
+                                },
+                                "selectionEntitiesTarget": {
+                                    "match": "selectionEntities",
+                                    "name": "df.target.selection.entity.tc"
+                                },
+                                "killerTarget": {
+                                    "match": "killer",
+                                    "name": "df.target.killer.player.tc"
+                                },
+                                "killerEntityTarget": {
+                                    "match": "killerEntity",
+                                    "name": "df.target.killer.entity.tc"
+                                },
+                                "damagerTarget": {
+                                    "match": "damager",
+                                    "name": "df.target.damager.player.tc"
+                                },
+                                "damagerEntityTarget": {
+                                    "match": "damagerEntity",
+                                    "name": "df.target.damager.entity.tc"
+                                },
+                                "shooterTarget": {
+                                    "match": "shooter",
+                                    "name": "df.target.shooter.player.tc"
+                                },
+                                "shooterEntityTarget": {
+                                    "match": "shooterEntity",
+                                    "name": "df.target.shooter.entity.tc"
+                                },
+                                "victimTarget": {
+                                    "match": "victim",
+                                    "name": "df.target.victim.player.tc"
+                                },
+                                "victimEntityTarget": {
+                                    "match": "victimEntity",
+                                    "name": "df.target.victim.entity.tc"
+                                },
+                                "allTarget": {
+                                    "match": "allPlayers",
+                                    "name": "df.target.all.player.tc"
+                                },
+                                "allEntitiesTarget": {
+                                    "match": "allEntities",
+                                    "name": "df.target.all.entity.tc"
+                                },
+                                "allMobsTarget": {
+                                    "match": "allMobs",
+                                    "name": "df.target.all.mobs.tc"
+                                },
+                                "projectileTarget": {
+                                    "match": "projectile",
+                                    "name": "df.target.projectile.tc"
+                                },
+                                "lastSpawnedEntityTarget": {
+                                    "match": "lastSpawnedEntity",
+                                    "name": "df.target.lastSpawnedEntity.tc"
+                                }
+                            }
+                        },
+                        "genericActionDomain": {
+                            "match": "(\\w+\\s*:)\\s*(\\[\\]|\\[(?:\\\\\\]|[^\\]])*[^\\\\]\\]|\\[.*|\\w*)?((?<=\\w+)\\s*:\\s*\\w+)?",
+                            "captures": {
+                                "1": {
+                                    "patterns": [{"include":"#operator"},{"include": "#target"}],
+                                    "name": "support.class.tc variable.other.object.tc"
+                                },
+                                "2": {
+                                    "patterns": [{"include":"#advName"}],
+                                    "name":"entity.name.function.tc"
+                                },
+                                "3": {
+                                    "patterns": [{"include":"#operator"},{"include":"#standaloneTypeName"}]
+                                }
+                            }
+                        },
+                        "genericValueDomain": {
+                            "match": "(\\w+\\s*\\.)\\s*(\\[\\]|\\[(?:\\\\\\]|[^\\]])*[^\\\\]\\]|\\[.*|\\w*)?",
+                            "captures": {
+                                "1": {
+                                    "patterns": [{"include":"#operator"},{"include": "#target"}],
+                                    "name": "support.class.tc variable.other.object.tc"
+                                },
+                                "2": {
+                                    "name":"support.variable.property.tc"
+                                }
+                            }
+                        },
+                        "genericConditionDomain": {
+                            "match": "(\\w+\\s*\\?)\\s*(\\[\\]|\\[(?:\\\\\\]|[^\\]])*[^\\\\]\\]|\\[.*|\\w*)?",
+                            "captures": {
+                                "1": {
+                                    "patterns": [{"include":"#operator"},{"include": "#target"}],
+                                    "name": "support.class.tc variable.other.object.tc"
+                                },
+                                "2": {
+                                    "patterns": [{"include":"#advName"}],
+                                    "name":"entity.name.function.tc"
+                                }
+                            }
+                        }
+                    }
+                },
+                "typeConstructor": {
+                    "match": "(?<=^|(?:;?\\W+))(vec|snd|csnd|loc|par|item|litem|pot)(?=\\s*\\[)",
+                    "captures": {
+                        "0": {
+                            "patterns": [
+                                {"include": "#typeName"},
+                                {
+                                    "match": "csnd",
+                                    "name": "entity.name.type.tc support.class.tc df.item.sound.tc tc.type tc.custom-sound"
+                                },
+                                {
+                                    "match": "litem",
+                                    "name": "entity.name.type.tc support.class.tc df.item.item.tc tc.type tc.library-item"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "parentheticFunctionCall": {
+                    "match": "([\\w]+)(?=\\s*\\(.*\\))",
+                    "name": "entity.name.function.tc"
+                },
+                "arglessFunctionCall": {
+                    "match": "(?<=\\w+\\s*:\\s*)(\\w+)",
+                    "name": "entity.name.function.tc"
+                },
+                "conditionCall": {
+                    "match": "(?<=\\w+\\s*\\?\\s*)(\\w+)",
+                    "name": "entity.name.function.tc df.action.if.tc"
+                },
+                "debugFunction": {
+                    "match": "__printvartype",
+                    "name": "entity.name.function.tc keyword tc.debug"
+                },
+                "braces": {
+                    "patterns": [
+                        {"include": "#braceRound"},
+                        {"include": "#braceSquare"},
+                        {"include": "#braceCurly"}
+                    ],
+                    "repository": {
+                        "braceRound": {
+                            "match": "[\\(\\)]",
+                            "name": "meta.brace.round.tc"
+                        },
+                        "braceSquare": {
+                            "match": "[\\[\\]]",
+                            "name": "meta.brace.square.tc"
+                        },
+                        "braceCurly": {
+                            "match": "[\\{\\}]",
+                            "name": "meta.brace.tc"
+                        }
+                    }
+                }
+            }
+        },
+        "headerKeyword": {
+            "patterns": [
+                {"include": "#playerEventHeader"},
+                {"include": "#entityEventHeader"},
+                {"include": "#functionHeader"},
+                {"include": "#processHeader"},
+                {"include": "#paramHeader"},
+                {"include": "#lagslayerCancelHeader"}
+            ],
+            "repository": {
+                "playerEventHeader": {
+                    "match": "(?<=^|(;\\s*))PLAYER_EVENT(?![\\w])",
+                    "name": "storage.type.tc meta.function.tc df.block.event.player.tc tc.header.codeline-type.event.player"
+                },
+                "entityEventHeader": {
+                    "match": "(?<=^|(;\\s*))ENTITY_EVENT(?![\\w])",
+                    "name": "storage.type.tc meta.function.tc df.block.event.entity.tc tc.header.codeline-type.event.entity"
+                },
+                "functionHeader": {
+                    "match": "(?<=^|(;\\s*))FUNCTION(?![\\w])",
+                    "name": "storage.type.tc meta.function.tc df.block.function.tc tc.header.codeline-type.function"
+                },
+                "processHeader": {
+                    "match": "(?<=^|(;\\s*))PROCESS(?![\\w])",
+                    "name": "storage.type.tc meta.function.tc df.block.process.tc tc.header.codeline-type"
+                },
+                "lagslayerCancelHeader": {
+                    "match": "(?<=^|(;\\s*))LAGSLAYER_CANCEL(?![\\w])",
+                    "name": "storage.type meta.function.tc tc.header.lagslayer-cancel"
+                },
+                "paramHeader": {
+                    "match": "(?<=^|(?:;?\\W+))(PARAM)(?![\\w])\\s*(\\[\\]|\\[(?:\\\\\\]|[^\\]])*[^\\\\]\\]|\\[.*|\\w*)?(:)?([^=;]*)(?==|;|$)",
+                    "captures": {
+                        "1": {
+                            "name": "storage.type meta.function.tc df.parameter.tc tc.header.parameter"
+                        },
+                        "2": {
+                            "patterns": [{"include": "#advName"}],
+                            "name": "variable.other.tc"
+                        },
+                        "3": {
+                            "patterns": [{"include": "#operator"}],
+                            "name": "comment.tc"
+                        },
+                        "4": {
+                            "patterns": [
+                                {"include": "#operator"},
+                                {"include": "#paramModifierKeyword"},
+                                {"match": "(?<=^|(?:\\W+))var(?![\\w])","name": "entity.name.type.tc support.class.tc tc.type df.item.variable.tc"},
+                                {"include": "#standaloneTypeName"}
+                            ]
+                        }
+                    }
+                },
+                "paramHeaderOld": {
+                    "match": "(?<=^|(?:;?\\W+))(PARAM)(?![\\w])\\s*(\\[\\]|\\[(?:\\\\\\]|[^\\]])*[^\\\\]\\]|\\[.*|\\w*)?",
+                    "captures": {
+                        "1": {
+                            "name": "storage.type meta.function.tc df.parameter.tc tc.header.parameter"
+                        }
+                    }
+                }
+            }
+        },
+        "standaloneTypeName": {
+            "match": "(?<=^|(?:;?\\W+))(str|num|vec|loc|pot|snd|txt|item|list|dict|par|any)(?![\\w])",
+            "captures": {
+                "1": {
+                    "patterns": [{"include": "#typeName"}]
+                }
+            }
+        },
+        "typeName": {
+            "patterns": [
+                {"include": "#strName"},
+                {"include": "#numName"},
+                {"include": "#vecName"},
+                {"include": "#locName"},
+                {"include": "#potName"},
+                {"include": "#sndName"},
+                {"include": "#txtName"},
+                {"include": "#itemName"},
+                {"include": "#listName"},
+                {"include": "#dictName"},
+                {"include": "#parName"},
+                {"include": "#anyName"}
+            ],
+            "repository": {
+                "strName": {
+                    "match": "str",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.string.tc"
+                },
+                "numName": {
+                    "match": "num",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.number.tc"
+                },
+                "vecName": {
+                    "match": "vec",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.vector.tc"
+                },
+                "locName": {
+                    "match": "loc",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.location.tc"
+                },
+                "potName": {
+                    "match": "pot",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.potion.tc"
+                },
+                "sndName": {
+                    "match": "snd",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.sound.tc"
+                },
+                "txtName": {
+                    "match": "txt",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.styled-text.tc"
+                },
+                "itemName": {
+                    "match": "item",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.item.tc"
+                },
+                "listName": {
+                    "match": "list",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.list.tc"
+                },
+                "dictName": {
+                    "match": "dict",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.dictionary.tc"
+                },
+                "parName": {
+                    "match": "par",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.particle.tc"
+                },
+                "anyName": {
+                    "match": "any",
+                    "name": "entity.name.type.tc support.class.tc tc.type df.item.any.tc"
+                }
+            }
+        },
+        "typeAnnotationAnywhere": {
+            "match": "(?<=\\s*:\\s*)\\w+",
+            "captures": {
+                "0": {
+                    "patterns": [{"include": "#standaloneTypeName"}]
+                }
+            }
+        },
+        "operator": {
+            "match": "[=*+-/:?<>%]",
+            "name": "keyword.operator.tc"
+        },
+        "advNameFunc": {
+            "patterns": [
+                {
+                    "match": "(\\[\\s*)((\"|')(?:\\\\\\3|(?!\\3).)*(?:\\3|$|\\\\))(\\s*])?",
+                    "captures": {
+                        "2": {
+                            "patterns": [{"include": "#escapedChar"}],
+                            "name": "entity.name.function.tc tc.enclosed-name.name"
+                        },
+                        "1": {
+                            "name": "meta.brace.square.tc tc.enclosed-name.open"
+                        },
+                        "4": {
+                            "name": "meta.brace.square.tc tc.enclosed-name.close"
+                        }
+                    }
+                },
+                {
+                    "match": "(?<!\\].*\\[.*)\\[",
+                    "name": "meta.brace.square.tc tc.enclosed-name.open"
+                },
+                {
+                    "match": "(?<=[^\\\\])\\]",
+                    "name": "meta.brace.square.tc tc.enclosed-name.close"
+                }
+            ]
+        },
+        "advName": {
+            "patterns": [
+                {
+                    "match": "(\\[\\s*)((\"|')(?:\\\\\\3|(?!\\3).)*(?:\\3|$|\\\\))(\\s*])?",
+                    "captures": {
+                        "2": {
+                            "patterns": [{"include": "#escapedChar"}],
+                            "name": "string.quoted.tc tc.enclosed-name.name"
+                        },
+                        "1": {
+                            "name": "meta.brace.square.tc tc.enclosed-name.open"
+                        },
+                        "4": {
+                            "name": "meta.brace.square.tc tc.enclosed-name.close"
+                        }
+                    }
+                },
+                {
+                    "match": "(?<!\\].*\\[.*)\\[",
+                    "name": "meta.brace.square.tc tc.enclosed-name.open"
+                },
+                {
+                    "match": "(?<=[^\\\\])\\]",
+                    "name": "meta.brace.square.tc tc.enclosed-name.close"
+                }
+            ]
+        },
+        "controlKeyword": {
+            "match": "(?<=^|(;?\\W+))(if|repeat|else|while|for|in|on|to|return|returnmult|break|continue|endthread|not|wait)(?![\\w])",
+            "name": "keyword.control.tc"
+        },
+        "paramModifierKeyword": {
+            "match": "(?<=^|(;?\\W+))(optional|plural)(?![\\w])",
+            "name": "storage.type meta.function.tc tc.header.parameter-modifier"
+        },
+        "selectKeyword": {
+            "patterns": [
+                {"include": "#createSelection"},
+                {"include": "#filterSelection"}
+            ],
+            "repository": {
+                "createSelection": {
+                    "match": "(?<=^|(;?\\W+))select(?![\\w])",
+                    "name": "keyword.control.tc df.block.select.select.tc"
+                },
+                "filterSelection": {
+                    "match": "(?<=^|(;?\\W+))filter(?![\\w])",
+                    "name": "keyword.control.tc df.block.select.filter.tc"
+                }
+            }
+        },
+        "commentedLine": {
+            "match": "#.*",
+            "name": "comment.tc"
+        },
+        "semicolon": {
+            "match": ";",
+            "name": "punctuation.terminator"
+        },
+        "escapedChar": {
+            "match": "\\\\.",
+            "name": "constant.character.escape"
+        }
+    }
+}
