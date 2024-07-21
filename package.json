@@ -12,7 +12,8 @@
 		"Other"
 	],
 	"activationEvents": [
-		"onLanguage:terracotta"
+		"onLanguage:terracotta",
+		"onDebug"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
@@ -60,6 +61,106 @@
 				"scopeName": "source.terracotta",
 				"path": "./syntaxes/main.json"
 			}
+		],
+		"menus": {
+			"editor/title/run": [
+				{
+					"command": "extension.terracotta.compileEditorSend",
+					"when": "resourceLangId == terracotta",
+					"group": "navigation@1"
+				},
+				{
+					"command": "extension.terracotta.compileEditorCopy",
+					"when": "resourceLangId == terracotta",
+					"group": "navigation@2"
+				}
+			],
+			"commandPalette": [
+				{
+					"command": "extension.terracotta.compileEditorSend",
+					"when": "resourceLangId == terracotta"
+				},
+				{
+					"command": "extension.terracotta.compileEditorCopy",
+					"when": "resourceLangId == terracotta"
+				}
+			]
+		},
+		"commands": [
+			{
+				"command": "extension.terracotta.compileEditorSend",
+				"title": "Compile File & Send to CodeClient",
+				"category": "Terracotta",
+				"enablement": "!inDebugMode",
+				"icon": "$(run-above)"
+			},
+			{
+				"command": "extension.terracotta.compileEditorCopy",
+				"title": "Compile File & Copy to Clipboard",
+				"category": "Terracotta",
+				"enablement": "!inDebugMode",
+				"icon": "$(play)"
+			}
+		],
+		"debuggers": [
+			{
+				"type": "terracotta",
+				"languages": [
+					"terracotta"
+				],
+				"label": "Terracotta",
+				"program": "./out/debugger.js",
+				"runtime": "node",
+				"configurationAttributes": {
+					"launch": {
+						"required": [
+							"folder"
+						],
+						"properties": {
+							"folder": {
+								"type": "string",
+								"description": "Absolute path to a terracotta project folder",
+								"default": "${workspaceFolder}"
+							},
+							"exportMode": {
+								"type": "string",
+								"description": "What to do with the compiled code templates",
+								"enum": [
+									"sendToCodeClient",
+									"saveToFiles"
+								],
+								"enumDescriptions": [
+									"Uses codeclient's placer to automatically add code to a plot",
+									"Saves code templates to files"
+								],
+								"default": "sendToCodeClient"
+							}
+						}
+					}
+				},
+				"initialConfigurations": [
+					{
+						"type": "terracotta",
+						"request": "launch",
+						"name": "Compile Project",
+						"folder": "${workspaceFolder}",
+						"exportMode": "sendToCodeClient"
+					}
+				],
+				"configurationSnippets": [
+					{
+						"label": "Terracotta: Compile to CodeClient",
+						"description": "Compiles the project and sends the results to codeclient",
+						"body": {
+							"type": "terracotta",
+							"request": "launch",
+							"name": "Compile Project",
+							"folder": "^\"\\${workspaceFolder}\"",
+							"exportMode": "sendToCodeClient"
+						}
+					}
+				]
+			}
 		]
 	},
 	"scripts": {
@@ -69,13 +170,19 @@
 		"watch": "tsc -watch -p ./"
 	},
 	"dependencies": {
+		"@vscode/debugadapter": "^1.66.0",
+		"@vscode/debugprotocol": "^1.66.0",
+		"await-notify": "^1.0.1",
+		"base64-js": "^1.5.1",
 		"bun": "^1.0.30",
 		"vscode-languageclient": "^7.0.0",
-		"vscode-languageserver": "^9.0.1"
+		"vscode-languageserver": "^9.0.1",
+		"ws": "^8.18.0"
 	},
 	"devDependencies": {
 		"@types/node": "^18",
 		"@types/vscode": "^1.73.0",
+		"@types/ws": "^8.5.11",
 		"typescript": "^5.4.2"
 	}
 }
