@@ -170,11 +170,11 @@
 		"watch": "tsc -watch -p ./"
 	},
 	"dependencies": {
-		"@vscode/debugadapter": "^1.66.0",
-		"@vscode/debugprotocol": "^1.66.0",
 		"await-notify": "^1.0.1",
 		"base64-js": "^1.5.1",
 		"bun": "^1.0.30",
+		"vscode-debugprotocol": "^1.51.0",
+		"vscode-jsonrpc": "^8.2.1",
 		"vscode-languageclient": "^7.0.0",
 		"vscode-languageserver": "^9.0.1",
 		"ws": "^8.18.0"
