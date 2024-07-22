@@ -13,7 +13,8 @@
 	],
 	"activationEvents": [
 		"onLanguage:terracotta",
-		"onDebug"
+		"onDebug",
+		"workspaceContains:**/**.tc"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
