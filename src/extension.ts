@@ -1,12 +1,12 @@
 import * as cp from "child_process";
 import * as path from "path"
 import * as vscode from 'vscode';
-import {workspace} from "vscode"
 import { RawData, WebSocket } from 'ws';
 import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
+import { DebuggerExtraInfo } from "./debugger";
 
 
-const config: vscode.WorkspaceConfiguration = workspace.getConfiguration("terracotta")
+const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("terracotta")
 const debuggers: {[key: string]: vscode.DebugSession} = {}
 
 let client: LanguageClient
@@ -74,8 +74,11 @@ export function activate(context: vscode.ExtensionContext) {
 	//async'ing all the syncronous ones
 	vscode.debug.onDidReceiveDebugSessionCustomEvent(async event => {
 		//i would use an ACTUAL REQUEST for this but theres not a callback for that 
-		if (event.event == "requestScopes") {
-			event.session.customRequest("returnScopes",await getCodeClientScopes())
+		if (event.event == "requestInfo") {
+			event.session.customRequest("returnInfo",{
+				scopes: await getCodeClientScopes(),
+				terracottaInstallPath: terracottaPath
+			} as DebuggerExtraInfo)
 		}
 	})
 
@@ -126,7 +129,7 @@ export function activate(context: vscode.ExtensionContext) {
 	let clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: 'file', language: 'terracotta' }],
 		synchronize: {
-			fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
+			fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
 		},
 		outputChannel: outputChannel,
 		outputChannelName: "terracotta"

@@ -1,4 +1,15 @@
 import { DebugProtocol as dap } from "vscode-debugprotocol"
+import * as cp from "node:child_process"
+import * as vscode from "vscode"
+
+let splitPath = __dirname.split("/")
+splitPath.pop()
+let bunPath = (splitPath.join("/")+"/node_modules/.bin/bun").replace(/ /g,"\\ ").replace(/"/g,'\\"')
+
+export interface DebuggerExtraInfo {
+    scopes: string[],
+    terracottaInstallPath: string
+}
 
 //==========[ util functions ]=========\
 
@@ -26,7 +37,7 @@ function sendResponse(request: dap.Request, body: any, successful: boolean = tru
 
 //==========[ actual debugger stuff ]=========\
 
-let scopesResolve: ((scopes: string[]) => void) | undefined = undefined
+let infoResolve: ((scopes: DebuggerExtraInfo) => void) | undefined = undefined
 
 const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
     "initialize": function(request) {
@@ -38,22 +49,42 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
         sendResponse(request,{})
         
         if (request.arguments.exportMode == "sendToCodeClient") {
-            let scopes = await new Promise<string[]>(resolve => {
-                sendEvent("requestScopes")
+            let info = await new Promise<DebuggerExtraInfo>(resolve => {
+                sendEvent("requestInfo")
                 //throwing the resolve function out there for the returnScopes handler to deal with
                 //is such a war crime but im too lazy to figure out a less stupid way to do it
-                scopesResolve = resolve
+                infoResolve = resolve
             })
 
-            //error if user has not authorized codeclient to write code
-            if (!scopes.includes("write_code")) {
-                sendEvent("showErrorMessage","Terracotta is missing permsissions, please run /auth in Minecraft")
-                process.exit(126)
+            let templates: string[] = []
+            try {
+                let command = `cd "${info.terracottaInstallPath}"; ${bunPath} run "${info.terracottaInstallPath}src/main.ts" --compile --project "${request.arguments.folder}"`
+                templates = cp.execSync(command,{maxBuffer: Infinity,}).toString().split("\n")
+            }
+            catch (e: any) {
+                sendEvent('output',{
+                    output: e.output[2].toString(),
+                    category: "stderr",
+
+                })
+                process.exit(1)
             }
 
-            //placeholder code
+            //make sure codeclient can actually do the thing
+            if (!info.scopes.includes("write_code")) {
+                sendEvent('output',{
+                    output: "Terracotta does not have permission to edit code. Please run /auth in your Minecraft client",
+                    category: "console",
+
+                })
+                process.exit(126)
+            }
+            
+            //send code to codeclient placer
             sendEvent("codeclient",'place swap') 
-            sendEvent("codeclient",'place H4sIAAAAAAACA+VWXWvCMBT9KyUwmMOHbX5s9GljDtmDLyqyD6TE9lrL0qQ0qZuI/303rUrUulWHg7KnNsm5556eHMqdkxET7rsk9tucBB6xszWpLp82GSfcxSWNfQQhRkGo0cNFlXhUUUTQD5AiBLKo7qGQoJwpjXNYsrd0RxdmoIx2TjhFUpvcOU7/wek+tp0rPJSuiPQuCzh2RBGSCUXsy7T5j1wjypg0WBIu6RQ8g+hqh4gn4S7RpVFyXaykZpTUFto/6qpAcDwagKtEfHoDrw8x0MeWzGBTs7SuFcSoVuuuEoVyAItJC8Y0YepbH0fMUdQ3CXFlkwcRRoIDV3gioqUhz/kfv/KrDSqzTBebN9Hc9HULd2p7a7/OZ6Gs/0dr62VJ7ksp7W2UIbnltLZZluS+ltLemzIkt5zW3h5ibe7IcxZSNTk/wz7nxhBSudjaqVUqh09gudz1He7GBnfBUS2Xu7nDfbPBfeBMFzE6g9hZ4v/0rvZE954FPg8xulZHeGDmtwt+wlIBe9WvPrsH3OuAlNQ3NWCSC4row6eyBpQlYHUg9gOuIWsh955nyYi6oIf4Y7U0imp54hOIA2X11IylHdc6+nGiDTpWQX0zKiYq7wc/XHwBFjf2p6cNAAA=') 
+            templates.forEach(template => {
+                sendEvent("codeclient",`place ${template}`)
+            })
             sendEvent("codeclient",'place go') 
         }
     },
@@ -62,10 +93,10 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
             process.exit(0)
         }
     },
-    "returnScopes": function(request) {
-        if (scopesResolve) {
-            scopesResolve(request.arguments)
-            scopesResolve = undefined
+    "returnInfo": function(request) {
+        if (infoResolve) {
+            infoResolve(request.arguments)
+            infoResolve = undefined
         }
     }
 }
