@@ -1,9 +1,9 @@
 # Terracotta VSCode Extension
-Provides the following language features for Terracotta:
+Provides the following features for Terracotta:
 - Autocomplete/Intellisense
 - Syntax highlighting
 - Signature help
-- More coming soon probably
+- CodeClient integration
 
 Currently you have to manually download the language server from [here](https://github.com/MrAwesomeOwl/terracotta) and set the extension setting `terracotta.installPath` to its path.
 
