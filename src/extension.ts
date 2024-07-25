@@ -27,20 +27,58 @@ let mainScriptPath = terracottaPath + "src/main.ts"
 let neededScopes = "write_code movement"
 let codeClientWS: WebSocket
 
+
+function codeclientMessage(message: string) {
+	console.log("[codeclient out]:",message)
+	codeClientWS.send(message)
+}
+
 async function getCodeClientScopes(): Promise<string[]> {
 	return await new Promise<string[]>(resolve => {
-		codeClientWS.send("scopes")
+		codeclientMessage("scopes")
 
-		//i have no idea what happens if a message other than the scopes return gets recieved
-		//i assume the code will just see "oh no i dont have the scopes" and request new ones
-		codeClientWS.once("message",message => {
-			let scopes = message.toString().split(" ")
-			resolve(scopes)
-		})
+		function callback(message: Buffer) {
+			let str = message.toString()
+			if (str.match("default")) {
+				codeClientWS.removeListener("message",callback)
+				resolve(str.split(" "))
+			}
+		}
+
+		codeClientWS.addListener("message",callback)
+	})
+}
+
+async function getCodeClientMode(): Promise<string> {
+	return await new Promise<string>(resolve => {
+		let resolved = false
+
+		codeclientMessage("mode")
+
+		setTimeout(() => {
+			if (!resolved) {
+				codeClientWS.removeListener("message",callback)
+				resolve("unknown")
+			}
+		},2000)
+
+		function callback(message: Buffer) {
+			let str = message.toString()
+			if (str == "spawn" || str == "play" || str == "build" || str == "code") {
+				codeClientWS.removeListener("message",callback)
+				resolve(str)
+			}
+		}
+
+		codeClientWS.addListener("message",callback)
 	})
 }
 
 async function setupCodeClient() {
+	if (codeClientWS) {
+		codeClientWS.close()
+	}
+
 	//client
 	codeClientWS = new WebSocket("ws://localhost:31375")
     
@@ -49,12 +87,14 @@ async function setupCodeClient() {
 		let currentScopes = await getCodeClientScopes()
 
 		if (!currentScopes.includes("write_code")) {
-			codeClientWS.send(`scopes ${neededScopes}`)
+			codeclientMessage(`scopes ${neededScopes}`)
 		}
 	})
 
 	codeClientWS.on("message",(message: RawData | string) => {
 		message = message.toString()
+
+		console.log("[codeclient inc]:",message)
 
 		for (const session of Object.values(debuggers)) {
 			session.customRequest("codeclientMessage",message)
@@ -69,6 +109,11 @@ export function activate(context: vscode.ExtensionContext) {
 		
 	setupCodeClient()
 
+	//= commands =\\
+	vscode.commands.registerCommand("extension.terracotta.refreshCodeClient",() => {
+		setupCodeClient();
+	})
+
 	//= set up debugger =\\
 
 	//split up all the async callbacks into their own group to avoid
@@ -78,6 +123,7 @@ export function activate(context: vscode.ExtensionContext) {
 		if (event.event == "requestInfo") {
 			event.session.customRequest("returnInfo",{
 				scopes: await getCodeClientScopes(),
+				mode: await getCodeClientMode(),
 				terracottaInstallPath: terracottaPath
 			} as DebuggerExtraInfo)
 		}
@@ -91,10 +137,13 @@ export function activate(context: vscode.ExtensionContext) {
 			vscode.window.showErrorMessage(event.body)
 		}
 		else if (event.event == "codeclient") {
-			codeClientWS.send(event.body)
+			codeclientMessage(event.body)
 		}
 		else if (event.event == "redoScopes") {
-			codeClientWS.send(`scopes ${neededScopes}`)
+			codeclientMessage(`scopes ${neededScopes}`)
+		}
+		else if (event.event == "refreshCodeClient") {
+			setupCodeClient()
 		}
 	})
 

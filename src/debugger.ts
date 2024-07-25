@@ -8,6 +8,7 @@ let bunPath = (splitPath.join("/")+"/node_modules/.bin/bun").replace(/ /g,"\\ ")
 
 export interface DebuggerExtraInfo {
     scopes: string[],
+    mode: "spawn" | "play" | "build" | "code" | "unknown"
     terracottaInstallPath: string
 }
 
@@ -71,16 +72,45 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
             }
 
             //make sure codeclient can actually do the thing
-            if (!info.scopes.includes("write_code")) {
+            if (info.mode == "unknown") {
+                sendEvent('output',{
+                    output: "Could not get mode data from codeclient. Wait a few seconds for the codeclient connection to refresh then try again. (If this message keeps appearing, try restarting minecraft)",
+                    category: "console",
+                })
+                sendEvent("refreshCodeClient")
+                process.exit(1)
+            }
+            else if (info.mode == "spawn") {
+                sendEvent('output',{
+                    output: "Terracotta cannot compile to a plot if you are not on a plot.",
+                    category: "console",
+                    
+                })
+                process.exit(126)
+            }
+            else if (!info.scopes.includes("write_code")) {
                 sendEvent('output',{
                     output: "Terracotta does not have permission to edit code. Please run /auth in your Minecraft client",
                     category: "console",
-
+    
                 })
                 sendEvent("redoScopes")
                 process.exit(126)
             }
+            else if (info.mode != "code") {
+                sendEvent('output',{
+                    output: `You are currently in ${info.mode} mode. Please switch to dev or add '"autoSwitchToDev": true' to your launch configuration.`,
+                    category: "console",
+    
+                })
+                process.exit(126)
+            }
             
+            sendEvent('output',{
+                output: `Starting to place code\n`,
+                category: "console",
+            })
+
             //send code to codeclient placer
             sendEvent("codeclient",'place swap') 
             templates.forEach(template => {
@@ -91,6 +121,10 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
     },
     "codeclientMessage": function(request) {
         if (request.arguments == "place done") {
+            sendEvent('output',{
+                output: `Code placing complete!\n`,
+                category: "console",
+            })
             process.exit(0)
         }
     },

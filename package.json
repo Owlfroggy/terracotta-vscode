@@ -101,6 +101,11 @@
 				"category": "Terracotta",
 				"enablement": "!inDebugMode",
 				"icon": "$(play)"
+			},
+			{
+				"command": "extension.terracotta.refreshCodeClient",
+				"title": "Refresh CodeClient Connection",
+				"category": "Terracotta"
 			}
 		],
 		"debuggers": [
