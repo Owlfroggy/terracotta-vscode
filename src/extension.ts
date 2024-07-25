@@ -127,6 +127,25 @@ export function activate(context: vscode.ExtensionContext) {
 				terracottaInstallPath: terracottaPath
 			} as DebuggerExtraInfo)
 		}
+		else if (event.event == "switchToDev") {
+			codeclientMessage("mode code")
+
+			let intervalId: any
+
+			function callback(message: string) {
+				if (message == "code") {
+					codeClientWS.removeListener("message",callback)
+					clearInterval(intervalId)
+					event.session.customRequest("responseNowInDev")
+				}
+			}
+
+			intervalId = setInterval(() => {
+				codeClientWS.send("mode")
+			},500)
+
+			codeClientWS.on("message",callback)
+		}
 	})
 
 	vscode.debug.onDidReceiveDebugSessionCustomEvent(event => {

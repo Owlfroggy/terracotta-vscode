@@ -140,6 +140,16 @@
 									"Saves code templates to files"
 								],
 								"default": "sendToCodeClient"
+							},
+							"autoSwitchToDev": {
+								"type": "boolean",
+								"description": "If in play or build mode when launching, automatically switch to dev mode instead of throwing an error",
+								"default": true
+							},
+							"autoSwitchToPlay": {
+								"type": "boolean",
+								"description": "After placing all compiled code, automatically run /play",
+								"default": true
 							}
 						}
 					}
@@ -150,7 +160,9 @@
 						"request": "launch",
 						"name": "Compile Project",
 						"folder": "${workspaceFolder}",
-						"exportMode": "sendToCodeClient"
+						"exportMode": "sendToCodeClient",
+						"autoSwitchToDev": true,
+						"autoSwitchToPlay": true
 					}
 				],
 				"configurationSnippets": [
@@ -162,7 +174,9 @@
 							"request": "launch",
 							"name": "Compile Project",
 							"folder": "^\"\\${workspaceFolder}\"",
-							"exportMode": "sendToCodeClient"
+							"exportMode": "sendToCodeClient",
+							"autoSwitchToDev": true,
+							"autoSwitchToPlay": true
 						}
 					}
 				]

@@ -38,7 +38,11 @@ function sendResponse(request: dap.Request, body: any, successful: boolean = tru
 
 //==========[ actual debugger stuff ]=========\
 
+let info: DebuggerExtraInfo
+let launchArguments: any
+
 let infoResolve: ((scopes: DebuggerExtraInfo) => void) | undefined = undefined
+let isInDevResolve: ((value: unknown) => void) | undefined = undefined
 
 const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
     "initialize": function(request) {
@@ -50,7 +54,8 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
         sendResponse(request,{})
         
         if (request.arguments.exportMode == "sendToCodeClient") {
-            let info = await new Promise<DebuggerExtraInfo>(resolve => {
+            launchArguments = request.arguments
+            info = await new Promise<DebuggerExtraInfo>(resolve => {
                 sendEvent("requestInfo")
                 //throwing the resolve function out there for the returnScopes handler to deal with
                 //is such a war crime but im too lazy to figure out a less stupid way to do it
@@ -98,12 +103,23 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                 process.exit(126)
             }
             else if (info.mode != "code") {
-                sendEvent('output',{
-                    output: `You are currently in ${info.mode} mode. Please switch to dev or add '"autoSwitchToDev": true' to your launch configuration.`,
-                    category: "console",
-    
-                })
-                process.exit(126)
+                if (request.arguments.autoSwitchToDev) {
+                    sendEvent('output',{
+                        output: `Switching to dev mode (currently in ${info.mode} mode)\n`,
+                        category: "console",
+                    })
+                    await new Promise(resolve => {
+                        sendEvent("switchToDev")
+                        isInDevResolve = resolve
+                    })
+                } else {
+                    sendEvent('output',{
+                        output: `You are currently in ${info.mode} mode. Please switch to dev or add '"autoSwitchToDev": true' to your launch configuration.`,
+                        category: "console",
+        
+                    })
+                    process.exit(126)
+                }
             }
             
             sendEvent('output',{
@@ -122,9 +138,12 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
     "codeclientMessage": function(request) {
         if (request.arguments == "place done") {
             sendEvent('output',{
-                output: `Code placing complete!\n`,
+                output: `Code placing complete! ${launchArguments.autoSwitchToPlay ? "Automatically switching to play mode" : ""}\n`,
                 category: "console",
             })
+            if (launchArguments.autoSwitchToPlay) {
+                sendEvent("codeclient","mode play")
+            }
             process.exit(0)
         }
     },
@@ -132,6 +151,12 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
         if (infoResolve) {
             infoResolve(request.arguments)
             infoResolve = undefined
+        }
+    },
+    "responseNowInDev": function(request) {
+        if (isInDevResolve) {
+            isInDevResolve(null)
+            isInDevResolve = undefined
         }
     }
 }
