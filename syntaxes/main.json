@@ -29,7 +29,7 @@
             ],
             "repository": {
                 "number": {
-                    "match": "(?:(?<![A-z0-9_]\\s*)-)?(\\d*\\.?\\d+)",
+                    "match": "(?:(?<![A-z0-9_]\\s*)-)?(?!_)((?:\\d|_(?!\\.))*\\.?(?!_)(?:\\d|_(?![^0-9]))+)",
                     "name": "constant.numeric.tc"
                 },
                 "callCustomFunction": {
