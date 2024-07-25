@@ -515,7 +515,7 @@
             }
         },
         "operator": {
-            "match": "[=*+-/:?<>%]",
+            "match": "[=*+-/:?<>%]|!=",
             "name": "keyword.operator.tc"
         },
         "advNameFunc": {
