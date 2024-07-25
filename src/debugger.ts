@@ -77,6 +77,7 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                     category: "console",
 
                 })
+                sendEvent("redoScopes")
                 process.exit(126)
             }
             
@@ -85,7 +86,7 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
             templates.forEach(template => {
                 sendEvent("codeclient",`place ${template}`)
             })
-            sendEvent("codeclient",'place go') 
+            sendEvent("codeclient",'place go')
         }
     },
     "codeclientMessage": function(request) {

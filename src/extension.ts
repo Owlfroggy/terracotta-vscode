@@ -24,6 +24,7 @@ let mainScriptPath = terracottaPath + "src/main.ts"
 
 //==========[ codeclient ]=========\
 
+let neededScopes = "write_code movement"
 let codeClientWS: WebSocket
 
 async function getCodeClientScopes(): Promise<string[]> {
@@ -48,7 +49,7 @@ async function setupCodeClient() {
 		let currentScopes = await getCodeClientScopes()
 
 		if (!currentScopes.includes("write_code")) {
-			codeClientWS.send("scopes write_code")
+			codeClientWS.send(`scopes ${neededScopes}`)
 		}
 	})
 
@@ -91,6 +92,9 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 		else if (event.event == "codeclient") {
 			codeClientWS.send(event.body)
+		}
+		else if (event.event == "redoScopes") {
+			codeClientWS.send(`scopes ${neededScopes}`)
 		}
 	})
 
