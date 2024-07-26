@@ -77,7 +77,16 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
             }
 
             //make sure codeclient can actually do the thing
-            if (info.mode == "unknown") {
+            if (!info.scopes.includes("write_code")) {
+                sendEvent('output',{
+                    output: "Terracotta does is missing codeclient permissions. Please run /auth in your Minecraft client",
+                    category: "console",
+    
+                })
+                sendEvent("redoScopes")
+                process.exit(126)
+            }
+            else if (info.mode == "unknown") {
                 sendEvent('output',{
                     output: "Could not get mode data from codeclient. Wait a few seconds for the codeclient connection to refresh then try again. (If this message keeps appearing, try restarting minecraft)",
                     category: "console",
@@ -91,15 +100,6 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                     category: "console",
                     
                 })
-                process.exit(126)
-            }
-            else if (!info.scopes.includes("write_code")) {
-                sendEvent('output',{
-                    output: "Terracotta does not have permission to edit code. Please run /auth in your Minecraft client",
-                    category: "console",
-    
-                })
-                sendEvent("redoScopes")
                 process.exit(126)
             }
             else if (info.mode != "code") {
