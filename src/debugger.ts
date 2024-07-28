@@ -169,11 +169,15 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
 }
 
 process.stdin.on("data",data => {
-    let lines = data.toString().split("\r\n")
-    let json = JSON.parse(lines[2])
-    if (json.type == "request") {
-        if (requestHandlers[json.command]) {
-            requestHandlers[json.command](json)
-        }   
+    let commands = data.toString().split(/Content-Length: \d+\r\n\r\n/g)
+    commands.shift() //since the first entry will always be an empty string
+
+    for (let command of commands) {
+        let json = JSON.parse(command)
+        if (json.type == "request") {
+            if (requestHandlers[json.command]) {
+                requestHandlers[json.command](json)
+            }   
+        }
     }
 })
