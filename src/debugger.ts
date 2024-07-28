@@ -146,6 +146,13 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
             }
             process.exit(0)
         }
+        else if (request.arguments == "aborted") {
+            sendEvent('output',{
+                output: `Code placing was aborted from within minecraft\n`,
+                category: "console",
+            })
+            process.exit(1)
+        }
     },
     "returnInfo": function(request) {
         if (infoResolve) {
