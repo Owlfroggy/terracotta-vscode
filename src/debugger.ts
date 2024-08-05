@@ -64,7 +64,7 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
 
             let templates: string[] = []
             try {
-                let command = `cd "${info.terracottaInstallPath}"; ${bunPath} run "${info.terracottaInstallPath}src/main.ts" --compile --project "${request.arguments.folder}"`
+                let command = `cd "${info.terracottaInstallPath}"; ${bunPath} run "${info.terracottaInstallPath}src/main.ts" --compile --project "${request.arguments.folder}" --plotsize ${launchArguments.plotSize}`
                 templates = cp.execSync(command,{maxBuffer: Infinity,}).toString().split("\n")
             }
             catch (e: any) {
