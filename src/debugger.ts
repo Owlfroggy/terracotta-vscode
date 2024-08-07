@@ -21,7 +21,7 @@ function sendEvent(event: string, body: any = null) {
         body: body
     })
     
-    process.stdout.write(`Content-Length: ${str.length}\r\n\r\n${str}`)
+    process.stdout.write(`Content-Length: ${Buffer.from(str,"utf-8").length}\r\n\r\n${str}`)
 }
 
 function sendResponse(request: dap.Request, body: any, successful: boolean = true) {
