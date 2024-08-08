@@ -1,6 +1,12 @@
 import { DebugProtocol as dap } from "vscode-debugprotocol"
 import * as cp from "node:child_process"
+import * as fs from "fs/promises"
 import * as vscode from "vscode"
+import { pathToFileURL } from "node:url"
+import * as crypto from "node:crypto"
+import { Stats } from "node:fs"
+import {URL} from "url"
+import { file, hash } from "bun"
 
 let splitPath = __dirname.split("/")
 splitPath.pop()
@@ -44,6 +50,10 @@ let launchArguments: any
 let infoResolve: ((scopes: DebuggerExtraInfo) => void) | undefined = undefined
 let isInDevResolve: ((value: unknown) => void) | undefined = undefined
 
+let tcMetaFolderPath: URL
+let hashFilePath: URL
+let newHashFilePath: URL
+
 const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
     "initialize": function(request) {
         sendResponse(request,{
@@ -55,6 +65,7 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
         
         if (request.arguments.exportMode == "sendToCodeClient") {
             launchArguments = request.arguments
+            
             info = await new Promise<DebuggerExtraInfo>(resolve => {
                 sendEvent("requestInfo")
                 //throwing the resolve function out there for the returnScopes handler to deal with
@@ -62,16 +73,35 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                 infoResolve = resolve
             })
 
-            let templates: string[] = []
+            let folderUrl = pathToFileURL(request.arguments.folder)
+            
+            tcMetaFolderPath = pathToFileURL(request.arguments.folder); tcMetaFolderPath.pathname += "/.terracotta/"
+            hashFilePath = pathToFileURL(request.arguments.folder); hashFilePath.pathname += "/.terracotta/templateHash"
+            newHashFilePath = pathToFileURL(request.arguments.folder); newHashFilePath.pathname += "/.terracotta/newTemplateHash"
+
+            //create .terracotta folder if it doesnt already exist
             try {
-                let command = `cd "${info.terracottaInstallPath}"; ${bunPath} run "${info.terracottaInstallPath}src/main.ts" --compile --project "${request.arguments.folder}" --plotsize ${launchArguments.plotSize}`
-                templates = cp.execSync(command,{maxBuffer: Infinity,}).toString().split("\n")
+                await fs.stat(tcMetaFolderPath)
+            } catch (e: any) {
+                if (e.errno == -2) {
+                    await fs.mkdir(tcMetaFolderPath)
+                } else {
+                    sendEvent('output',{
+                        output: `Could not access .terracotta folder (error code:${e.errno})`,
+                        category: "stderr",
+                    })
+                }
+            }
+
+            let templates: Dict<any>
+            try {
+                let command = `cd "${info.terracottaInstallPath}"; ${bunPath} run "${info.terracottaInstallPath}src/main.ts" --compile --project "${request.arguments.folder}" --includemeta --plotsize ${launchArguments.plotSize}`
+                templates = JSON.parse(cp.execSync(command,{maxBuffer: Infinity,}).toString())
             }
             catch (e: any) {
                 sendEvent('output',{
                     output: e.output[2].toString(),
                     category: "stderr",
-
                 })
                 process.exit(1)
             }
@@ -116,26 +146,110 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                     sendEvent('output',{
                         output: `You are currently in ${info.mode} mode. Please switch to dev or add '"autoSwitchToDev": true' to your launch configuration.`,
                         category: "console",
-        
                     })
                     process.exit(126)
                 }
             }
+
+            //= figure out what templates should be changed =\\
+            let seenTemplates: Dict<Set<string>> = {
+                functions: new Set<string>(),
+                processes: new Set<string>(),
+                playerEvents: new Set<string>(),
+                entityEvents: new Set<string>(),
+            }
+
+            let oldTemplatesHashes: Dict<Dict<string>> = {
+                functions: {},
+                processes: {},
+                playerEvents: {},
+                entityEvents: {},
+            }
             
-            sendEvent('output',{
-                output: `Starting to place code\n`,
-                category: "console",
+            //read hashes of the last compilation
+            let fileContents: string | undefined = undefined
+            try {
+                fileContents = (await fs.readFile(hashFilePath)).toString()
+            } catch (e) {}
+            if (fileContents) {
+                let headerType: string | undefined = undefined
+                fileContents.split("\n").forEach(line => {
+                    //lines denoting change in header type
+                    if (line.startsWith(">")) {
+                        headerType = line.substring(1)
+                        if (!(headerType in oldTemplatesHashes)) {headerType = undefined}
+                    }
+                    //lines for templates
+                    else if (headerType) {
+                        let [hash, name] = line.split(/ (.*)/)
+                        seenTemplates[headerType]!.add(name)
+                        oldTemplatesHashes[headerType]![name] = hash
+                    }
+                })
+            }
+
+
+            let newHashFileContents: string = ""
+            let placerCommands: string[] = []
+
+            ;["functions","processes","playerEvents","entityEvents"].forEach(headerType => {
+                let hashes: Dict<string> = {}
+
+                //get hashes of new templates
+                newHashFileContents += ">"+headerType+"\n"
+                for (const [name, template] of Object.entries(templates[headerType]) as [string,string][]) {
+                    let hash = crypto.createHash('md5').update(template).digest("hex")
+
+                    seenTemplates[headerType]!.add(name)
+                    hashes[name] = hash
+                    
+                    newHashFileContents += hash+" "+name+"\n"
+                }
+
+                //create codeclient commands
+                seenTemplates[headerType]!.forEach(templateName => {
+                    if (!(templateName in hashes)) {
+                        //remove command (when codeclient adds it)
+                    }
+                    //if template is new or has changed
+                    else if (!(templateName in oldTemplatesHashes[headerType]!) || hashes[templateName] != oldTemplatesHashes[headerType]![templateName]) {
+                        placerCommands.push(`place ${templates[headerType][templateName]}`)
+                    }
+                })
             })
 
-            //send code to codeclient placer
-            sendEvent("codeclient",'place swap') 
-            templates.forEach(template => {
-                sendEvent("codeclient",`place ${template}`)
-            })
-            sendEvent("codeclient",'place go')
+
+            await fs.writeFile(newHashFilePath,newHashFileContents,"utf-8")
+            
+
+            //= actually send to the placer =\\
+
+            if (placerCommands.length == 0) {
+                sendEvent('output',{
+                    output: `No template changes detected since last compilation\n`,
+                    category: "console",
+                })
+                if (launchArguments.autoSwitchToPlay) {
+                    sendEvent("codeclient","mode play")
+                }
+                
+                await fs.rename(newHashFilePath,hashFilePath)
+
+                process.exit(0)
+            }
+            else {
+                sendEvent('output',{
+                    output: `Starting to place code\n`,
+                    category: "console",
+                })
+
+                sendEvent("codeclient",'place swap') 
+                placerCommands.forEach(command => sendEvent("codeclient",command))
+                sendEvent("codeclient",'place go')
+            }
         }
     },
-    "codeclientMessage": function(request) {
+    "codeclientMessage": async function(request) {
         if (request.arguments == "place done") {
             sendEvent('output',{
                 output: `Code placing complete! ${launchArguments.autoSwitchToPlay ? "Automatically switching to play mode" : ""}\n`,
@@ -144,6 +258,9 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
             if (launchArguments.autoSwitchToPlay) {
                 sendEvent("codeclient","mode play")
             }
+
+            await fs.rename(newHashFilePath,hashFilePath)
+
             process.exit(0)
         }
         else if (request.arguments == "aborted") {
@@ -151,6 +268,9 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                 output: `Code placing was aborted from within minecraft\n`,
                 category: "console",
             })
+
+            await fs.rm(newHashFilePath)
+
             process.exit(1)
         }
     },
