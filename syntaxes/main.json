@@ -605,7 +605,7 @@
             "name": "punctuation.terminator"
         },
         "escapedChar": {
-            "match": "\\\\.",
+            "match": "\\\\u[A-f0-9]{4}|\\\\u\\{.*\\}|\\\\.",
             "name": "constant.character.escape"
         }
     }
