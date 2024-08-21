@@ -605,8 +605,20 @@
             "name": "punctuation.terminator"
         },
         "escapedChar": {
-            "match": "\\\\u[A-f0-9]{4}|\\\\u\\{.*\\}|\\\\.",
-            "name": "constant.character.escape"
+            "patterns": [
+                {"include": "#validEscape"},
+                {"include": "#invalidEscape"}
+            ],
+            "repository": {
+                "validEscape": {
+                    "match": "\\\\u[A-Fa-f0-9]{4}|\\\\u\\{.*\\}|\\\\['\"n\\\\&]",
+                    "name": "constant.character.escape"
+                },
+                "invalidEscape": {
+                    "match": "\\\\.",
+                    "name": "constant.character.escape invalid.illegal.unrecognized-string-escape"
+                }
+            }
         }
     }
 }
