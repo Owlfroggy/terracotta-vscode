@@ -400,7 +400,8 @@
                 },
                 "paramHeader": {
                     "match": "(?<=^|(?:;?\\W+))(PARAM)(?![\\w])\\s*(\\[\\]|\\[(?:\\\\\\]|[^\\]])*[^\\\\]\\]|\\[.*|\\w*)?(:)?([^=;]*)(?==|;|$)",
-                    "captures": {
+                    "captures":
+                     {
                         "1": {
                             "name": "storage.type meta.function.tc df.parameter.tc tc.header.parameter"
                         },
@@ -611,7 +612,7 @@
             ],
             "repository": {
                 "validEscape": {
-                    "match": "\\\\u[A-Fa-f0-9]{4}|\\\\u\\{.*\\}|\\\\['\"n\\\\&]",
+                    "match": "\\\\u[A-Fa-f0-9]{4}|\\\\u\\{[^}]*\\}|\\\\['\"n\\\\&]",
                     "name": "constant.character.escape"
                 },
                 "invalidEscape": {
