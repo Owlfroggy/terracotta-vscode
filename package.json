@@ -21,6 +21,7 @@
 		"languages": [
 			{
 				"id": "terracotta",
+				"aliases": ["tc"],
 				"extensions": [
 					".tc"
 				],
