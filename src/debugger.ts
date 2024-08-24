@@ -95,7 +95,7 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
 
             let templates: Dict<any>
             try {
-                let command = `cd "${info.terracottaInstallPath}"; ${bunPath} run "${info.terracottaInstallPath}src/main.ts" --compile --project "${request.arguments.folder}" --includemeta --plotsize ${launchArguments.plotSize}`
+                let command = `cd "${info.terracottaInstallPath}"; ${bunPath} run "${info.terracottaInstallPath}src/main.ts" compile --project "${request.arguments.folder}" --includemeta --plotsize ${launchArguments.plotSize}`
                 templates = JSON.parse(cp.execSync(command,{maxBuffer: Infinity,}).toString())
             }
             catch (e: any) {

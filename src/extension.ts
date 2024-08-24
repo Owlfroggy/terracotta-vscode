@@ -4,12 +4,15 @@ import * as vscode from 'vscode';
 import { RawData, WebSocket } from 'ws';
 import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
 import { DebuggerExtraInfo } from "./debugger";
+import * as fs from "fs/promises"
+import { pathToFileURL } from "url";
 
 
 const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("terracotta")
 const debuggers: {[key: string]: vscode.DebugSession} = {}
 
 let client: LanguageClient
+let outputChannel: vscode.OutputChannel
 
 //==========[ file paths ]=========\
 
@@ -17,10 +20,20 @@ let splitPath = __dirname.split("/")
 splitPath.pop()
 let bunPath = (splitPath.join("/")+"/node_modules/.bin/bun").replace(/ /g,"\\ ").replace(/"/g,'\\"')
 
-let terracottaPath = (config.get("installPath") as string).replace(/"/g,'\\"')
-if (!terracottaPath.endsWith("/")) { terracottaPath += "/" }
 
-let mainScriptPath = terracottaPath + "src/main.ts"
+let terracottaPath: string
+let mainScriptPath: string
+
+function updateTerracottaPath() {
+	const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("terracotta") //WHY DOES IT MAKE ME RUN THIS AGAIN TO GET UPDATED VALUE??? WHOSE IDEA WAS THIS
+	terracottaPath = (config.get("installPath") as string).replace(/"/g,'\\"')
+	console.log("NEW PATH",terracottaPath)
+	if (!terracottaPath.endsWith("/")) { terracottaPath += "/" }
+	mainScriptPath = terracottaPath + "src/main.ts"
+}
+
+updateTerracottaPath()
+
 
 //==========[ codeclient ]=========\
 
@@ -102,10 +115,59 @@ async function setupCodeClient() {
 	})
 }
 
+async function startLanguageServer() {
+	let server: cp.ChildProcess
+
+	//lmao i am so sorry
+	let serverOptions: ServerOptions = async function() {
+		if (process.platform == "darwin") {
+			/*
+				this one line is the single hackiest line of code i have ever written
+				- the server has to be piped through cat because when the server is started directly, stdin immediately closes for no reason
+				- because it has to be piped, its using exec and not spawn (yes i tried just using exec without piping but to no avail)
+				- maxBuffer is set to infinity because apparently maxBuffer just sets a limit on how much data can be passed through the child's stdout before it violently crahes
+
+				honestly i probably should have just spent a year learning rust
+			*/
+			server = cp.exec(`cd "${terracottaPath}"; cat | ${bunPath} run "${mainScriptPath}" server`,{maxBuffer: Infinity})
+		}
+		else if (process.platform == "win32") {
+			//add windows support later
+		}
+				
+		return Promise.resolve(server)
+	}
+	
+	// Options to control the language client
+	let clientOptions: LanguageClientOptions = {
+		documentSelector: [{ scheme: 'file', language: 'terracotta' }],
+		synchronize: {
+			fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
+		},
+		outputChannel: outputChannel,
+		outputChannelName: "terracotta"
+	};
+
+	try {
+		//check to see that the install path is valid
+		await fs.access(pathToFileURL(terracottaPath))
+		client = new LanguageClient(
+			'terracotta',
+			'Terracotta',
+			serverOptions,
+			clientOptions
+		);
+		client.start()
+	} catch {
+		vscode.window.showErrorMessage("Language server path is either invalid or non-existant. Check the setting 'terracotta.installPath'")
+	}
+}
+
 //==========[ extension events ]=========\
 
 export function activate(context: vscode.ExtensionContext) {
-	let outputChannel = vscode.window.createOutputChannel("Terracotta LSP")
+	outputChannel = vscode.window.createOutputChannel("Terracotta LSP")
+	outputChannel.show()
 		
 	setupCodeClient()
 
@@ -174,51 +236,20 @@ export function activate(context: vscode.ExtensionContext) {
 		delete debuggers[session.id]
 	})
 
+	//= settings response =\\
+	vscode.workspace.onDidChangeConfiguration(event => {
+		if (event.affectsConfiguration("terracotta.installPath")) {
+			updateTerracottaPath()
+			if (client == undefined) {
+				startLanguageServer()
+			} else {
+				vscode.window.showInformationMessage("The Terracotta language server is already running. Please restart vscode for the new install path to take effect")
+			}
+		}
+	})
+
 	//= set up language server =\\
-	let server: cp.ChildProcess
-
-	//lmao i am so sorry
-	let serverOptions: ServerOptions = async function() {
-		if (process.platform == "darwin") {
-			/*
-				this one line is the single hackiest line of code i have ever written
-				- the server has to be piped through cat because when the server is started directly, stdin immediately closes for no reason
-				- because it has to be piped, its using exec and not spawn (yes i tried just using exec without piping but to no avail)
-				- maxBuffer is set to infinity because apparently maxBuffer just sets a limit on how much data can be passed through the child's stdout before it violently crahes
-
-				honestly i probably should have just spent a year learning rust
-			*/
-			server = cp.exec(`cd "${terracottaPath}"; cat | ${bunPath} run "${mainScriptPath}" --server`,{maxBuffer: Infinity})
-		}
-		else if (process.platform == "win32") {
-			
-		}
-				
-		return Promise.resolve(server)
-	}
-	
-	// Options to control the language client
-	let clientOptions: LanguageClientOptions = {
-		documentSelector: [{ scheme: 'file', language: 'terracotta' }],
-		synchronize: {
-			fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
-		},
-		outputChannel: outputChannel,
-		outputChannelName: "terracotta"
-	};
-
-	outputChannel.show()
-
-	// Create the language client and start the client.
-	client = new LanguageClient(
-		'terracotta',
-		'Terracotta',
-		serverOptions,
-		clientOptions
-	);
-
-	// Start the client. This will also launch the server
-	client.start()
+	startLanguageServer()
 }
 
 export function deactivate(): Thenable<void> | undefined {
