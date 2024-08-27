@@ -25,6 +25,10 @@
 				"extensions": [
 					".tc"
 				],
+				"icon": {
+					"dark": "./logo-padded.svg",
+					"light": "./logo-padded.svg"
+				},
 				"configuration": "./language-configuration.json"
 			}
 		],

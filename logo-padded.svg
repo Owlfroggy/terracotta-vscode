@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" xmlns:bx="https://boxy-svg.com">
+  <defs>
+    <bx:grid x="0" y="0" width="100" height="100"/>
+  </defs>
+  <g transform="matrix(11.962934, 0, 0, 11.962934, 152.988892, 73.130363)" style="">
+    <path d="M 17 17.6 L 29 10.7 L 29 23.818 L 28.5 24.1 L 17 30.6 L 17 17.6 Z" style="stroke-width: 0px; transform-origin: 16px 12.6937px; fill: rgb(113, 157, 191);"/>
+  </g>
+  <polygon style="stroke: rgba(255, 197, 20, 0); fill: rgb(211, 133, 70);" points="188.744 174.558 188.542 152.623 215.872 120.644 243.862 102.92 248.159 113.588 260.151 128.265 275.989 75.156 323.053 32.873 406.758 10.773 397.448 44.655 414.928 103.25 437.349 143.754 443.288 133.535 462.006 119.96 466.049 144.666 471.986 155.832 500 176.818 345.131 263.544"/>
+  <g transform="matrix(-11.962934, 0, 0, 11.962934, 328.395782, 212.291122)" style="transform-origin: 16px 12.6937px;">
+    <path d="M 17 17.6 L 17 30.6 L 28.5 24.1 L 29 23.818 L 29 10.7 L 17 17.6 Z" style="stroke-width: 0px; transform-origin: 16px 12.6937px; fill: rgb(113, 157, 191);"/>
+    <path d="M 17 17.6 L 17 30.6 L 28.5 24.1 L 29 23.818 L 29 10.7 L 17 17.6 Z" style="stroke-width: 0px; transform-origin: 16px 12.694px; fill: rgb(113, 157, 191);"/>
+  </g>
+</svg>
