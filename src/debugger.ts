@@ -73,6 +73,14 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                 infoResolve = resolve
             })
 
+            if (info.scopes == null) {
+                sendEvent('output',{
+                    output: "CodeClient is not connected. If Minecraft is actually running, try 'Refresh CodeClient Connection' from the Command Pallette.",
+                    category: "console",
+                })
+                process.exit(1)
+            }
+
             let folderUrl = pathToFileURL(request.arguments.folder)
             
             tcMetaFolderPath = pathToFileURL(request.arguments.folder); tcMetaFolderPath.pathname += "/.terracotta/"

@@ -46,9 +46,18 @@ function codeclientMessage(message: string) {
 	codeClientWS.send(message)
 }
 
-async function getCodeClientScopes(): Promise<string[]> {
-	return await new Promise<string[]>(resolve => {
+async function getCodeClientScopes(): Promise<string[] | null> {
+	return await new Promise<string[] | null>(resolve => {
+		let resolved = false
+
 		codeclientMessage("scopes")
+
+		setTimeout(() => {
+			if (!resolved) {
+				codeClientWS.removeListener("message",callback)
+				resolve(null)
+			}
+		},2000)
 
 		function callback(message: Buffer) {
 			let str = message.toString()
@@ -99,9 +108,12 @@ async function setupCodeClient() {
 		//request write code permission if this doesnt already have it
 		let currentScopes = await getCodeClientScopes()
 
-		if (!currentScopes.includes("write_code")) {
-			codeclientMessage(`scopes ${neededScopes}`)
+		if (currentScopes != null) {
+			if (!currentScopes.includes("write_code")) {
+				codeclientMessage(`scopes ${neededScopes}`)
+			}
 		}
+
 	})
 
 	codeClientWS.on("message",(message: RawData | string) => {
