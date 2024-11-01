@@ -41,60 +41,65 @@ let neededScopes = "write_code movement"
 let codeClientWS: WebSocket
 
 
-function codeclientMessage(message: string) {
+function codeclientMessage(...message: string[]) {
+	if (codeClientWS == null || codeClientWS.readyState != WebSocket.OPEN) {
+		return
+	}
 	console.log("[codeclient out]:",message)
-	codeClientWS.send(message)
+	codeClientWS.send(message.join(""))
 }
 
-async function getCodeClientScopes(): Promise<string[] | null> {
-	return await new Promise<string[] | null>(resolve => {
-		let resolved = false
+/*used to create functions for getting specific values from ccapi
 
-		codeclientMessage("scopes")
+callback will run once for each incoming codeclient message that occurs after
+the initial command is sent. it will continue to run until returnValue is called
+or until it times out after 2 seconds pass.
 
-		setTimeout(() => {
-			if (!resolved) {
-				codeClientWS.removeListener("message",callback)
-				resolve(null)
+before returning anything, the callback should perform some kind of validation
+to prove that the message it recieved is actually connected to the proper request.
+*/
+
+function makeCodeClientGetter<R>(command: string, defaultValue: R, callback: (message: Buffer, returnValue: (value: R) => void) => void): (...args: string[]) => (Promise<R | null>) {
+	return async (...args: string[]): (Promise<R | null>) => {
+		return await new Promise<R | null>(resolve => {
+			let resolved = false
+	
+			codeclientMessage(command,...args)
+	
+			setTimeout(() => {
+				if (!resolved) {
+					codeClientWS.removeListener("message",internalCallback)
+					resolve(defaultValue)
+				}
+			},2000)
+
+			function returnValue(value: R) {
+				codeClientWS.removeListener("message",internalCallback)
+				resolve(value)
 			}
-		},2000)
-
-		function callback(message: Buffer) {
-			let str = message.toString()
-			if (str.match("default")) {
-				codeClientWS.removeListener("message",callback)
-				resolve(str.split(" "))
+	
+			function internalCallback(message: Buffer) {
+				callback(message,returnValue)
 			}
-		}
-
-		codeClientWS.addListener("message",callback)
-	})
+	
+			codeClientWS.addListener("message",internalCallback)
+		})
+	}
 }
 
-async function getCodeClientMode(): Promise<string> {
-	return await new Promise<string>(resolve => {
-		let resolved = false
+const getCodeClientScopes = makeCodeClientGetter<string[] | null>("scopes",null,(message, returnValue) => {
+	let str = message.toString()
+	if (str.match("default")) {
+		returnValue(str.split(" "))
+	}
+})
 
-		codeclientMessage("mode")
-
-		setTimeout(() => {
-			if (!resolved) {
-				codeClientWS.removeListener("message",callback)
-				resolve("unknown")
-			}
-		},2000)
-
-		function callback(message: Buffer) {
-			let str = message.toString()
-			if (str == "spawn" || str == "play" || str == "build" || str == "code") {
-				codeClientWS.removeListener("message",callback)
-				resolve(str)
-			}
-		}
-
-		codeClientWS.addListener("message",callback)
-	})
-}
+const getCodeClientMode = makeCodeClientGetter<string>("mode","unknown",(message, returnValue) => {
+	let str = message.toString()
+	if (str == "spawn" || str == "play" || str == "build" || str == "code") {
+		returnValue(str)
+	}
+})
 
 async function setupCodeClient() {
 	if (codeClientWS) {
