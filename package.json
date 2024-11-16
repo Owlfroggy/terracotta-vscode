@@ -14,22 +14,55 @@
 	"activationEvents": [
 		"onLanguage:terracotta",
 		"onDebug",
-		"workspaceContains:**/**.tc"
+		"workspaceContains:**/**.tc",
+		"workspaceContains:**/**.tcil.json"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
 		"languages": [
 			{
 				"id": "terracotta",
-				"aliases": ["tc"],
+				"aliases": [
+					"tc"
+				],
 				"extensions": [
 					".tc"
 				],
 				"icon": {
-					"dark": "./logo-padded.svg",
-					"light": "./logo-padded.svg"
+					"dark": "./assets/icons/logo-padded.svg",
+					"light": "./assets/icons/logo-padded.svg"
 				},
 				"configuration": "./language-configuration.json"
+			},
+			{
+				"id": "json",
+				"extensions": [
+					".tcil"
+				]
+			}
+		],
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "terracotta-container",
+					"title": "Terracotta",
+					"icon": "resources/package-explorer.svg"
+				}
+			]
+		},
+		"views": {
+			"terracotta-container": [
+				{
+					"type": "tree",
+					"id": "terracotta.itemLibraryEditor",
+					"name": "Item Libraries"
+				}
+			]
+		},
+		"viewsWelcome": [
+			{
+				"view": "terracotta.itemLibraryEditor",
+				"contents": "Please open a workspace or an item library."
 			}
 		],
 		"configuration": {
@@ -81,6 +114,13 @@
 					"group": "navigation@2"
 				}
 			],
+			"editor/title": [
+				{
+					"command": "extension.terracotta.convertCodeItem",
+					"when": "resourceLangId == terracotta",
+					"group": "navigation@1"
+				}
+			],
 			"commandPalette": [
 				{
 					"command": "extension.terracotta.compileEditorSend",
@@ -90,9 +130,146 @@
 					"command": "extension.terracotta.compileEditorCopy",
 					"when": "resourceLangId == terracotta"
 				}
+			],
+			"view/item/context": [
+				{
+					"command": "extension.terracotta.itemEditor.addLibraryToProject",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == project",
+					"group": "inline"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.addItemToLibrary",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == library",
+					"group": "inline"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.importItemToLibrary",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == library",
+					"group": "inline"
+				},
+
+				{
+					"command": "extension.terracotta.itemEditor.startEditingItem",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == item",
+					"group": "inline"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.stopEditingItem",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == itemBeingEdited",
+					"group": "inline"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.copyItemConstructor",
+					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == itemBeingEdited || viewItem == invalidItem)",
+					"group": "inline"
+				},
+
+
+				{
+					"command": "extension.terracotta.itemEditor.addItemToLibrary",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == library",
+					"group": "context@1"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.importItemToLibrary",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == library",
+					"group": "context@2"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.openFile",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == library",
+					"group": "context@2"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.copyItemConstructor",
+					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == itemBeingEdited || viewItem == invalidItem)",
+					"group": "context@1"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.startEditingItem",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == item",
+					"group": "context@2"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.stopEditingItem",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == itemBeingEdited",
+					"group": "context@2"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.giveStaticCopy",
+					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == itemBeingEdited)",
+					"group": "context@3"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.rename",
+					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == invalidItem)",
+					"group": "context@4"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.delete",
+					"when": "view == terracotta.itemLibraryEditor && (viewItem == library || viewItem == item || viewItem == itemBeingEdited || viewItem == invalidItem)"
+				}
 			]
 		},
 		"commands": [
+			{
+				"command": "extension.terracotta.itemEditor.addLibraryToProject",
+				"title": "New Library",
+				"category": "Terracotta",
+				"icon": "$(plus)"
+			},
+			{
+				"command": "extension.terracotta.itemEditor.openFile",
+				"title": "Open File",
+				"category": "terracotta"
+			},
+			{
+				"command": "extension.terracotta.itemEditor.delete",
+				"title": "Delete",
+				"category": "terracotta"
+			},
+			{
+				"command": "extension.terracotta.itemEditor.addItemToLibrary",
+				"title": "New Item",
+				"category": "Terracotta",
+				"icon": "$(plus)"
+			},
+			{
+				"command": "extension.terracotta.itemEditor.importItemToLibrary",
+				"title": "Import Item from Minecraft",
+				"category": "Terracotta",
+				"icon": "$(cloud-download)"
+			},
+			{
+				"command": "extension.terracotta.itemEditor.startEditingItem",
+				"title": "Edit in Minecraft",
+				"category": "Terracotta",
+				"icon": "$(pencil)"
+			},
+			{
+				"command": "extension.terracotta.itemEditor.giveStaticCopy",
+				"title": "Get Static Copy in Minecraft",
+				"category": "Terracotta"
+			},
+			{
+				"command": "extension.terracotta.itemEditor.rename",
+				"title": "Rename",
+				"category": "Terracotta"
+			},
+			{
+				"command": "extension.terracotta.itemEditor.stopEditingItem",
+				"title": "Save & Stop Editing",
+				"category": "Terracotta",
+				"icon": "$(check)"
+			},
+			{
+				"command": "extension.terracotta.itemEditor.copyItemConstructor",
+				"title": "Copy Constructor",
+				"category": "Terracotta",
+				"icon": "$(files)"
+			},
+
+
 			{
 				"command": "extension.terracotta.compileEditorSend",
 				"title": "Compile File & Send to CodeClient",
@@ -110,6 +287,17 @@
 			{
 				"command": "extension.terracotta.refreshCodeClient",
 				"title": "Refresh CodeClient Connection",
+				"category": "Terracotta"
+			},
+			{
+				"command": "extension.terracotta.convertCodeItem",
+				"title": "Terracottize Code Item (from Minecraft)",
+				"category": "Terracotta",
+				"icon": "$(dfcodeitem-gamevalue)"
+			},
+			{
+				"command": "extension.terracotta.openItemLibraryEditor",
+				"title": "Open Item Library Editor",
 				"category": "Terracotta"
 			}
 		],
@@ -193,7 +381,100 @@
 					}
 				]
 			}
-		]
+		],
+		"icons": {
+			"dfcodeitem-string": {
+				"description": "String",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "s"
+				}
+			},
+			"dfcodeitem-styledtext": {
+				"description": "Styled Text",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "t"
+				}
+			},
+			"dfcodeitem-number": {
+				"description": "number",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "n"
+				}
+			},
+			"dfcodeitem-location": {
+				"description": "Location",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "l"
+				}
+			},
+			"dfcodeitem-vector": {
+				"description": "Vector",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "v"
+				}
+			},
+			"dfcodeitem-sound": {
+				"description": "Sound",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "S"
+				}
+			},
+			"dfcodeitem-particle": {
+				"description": "Particle",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "P"
+				}
+			},
+			"dfcodeitem-potion": {
+				"description": "Potion",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "p"
+				}
+			},
+			"dfcodeitem-variable": {
+				"description": "Variable",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "V"
+				}
+			},
+			"dfcodeitem-gamevalue": {
+				"description": "Game Value",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "g"
+				}
+			},
+			"dfcodeitem-parameter": {
+				"description": "Parameter",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "a"
+				}
+			},
+			"dfcodeitem-item": {
+				"description": "Item",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": "i"
+				}
+			},
+			"dfcodeitem-empty": {
+				"description": "Nothing",
+				"default": {
+					"fontPath": "/assets/icons/icons.woff",
+					"fontCharacter": " "
+				}
+			}
+		}
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
@@ -205,6 +486,11 @@
 		"await-notify": "^1.0.1",
 		"base64-js": "^1.5.1",
 		"bun": "^1.0.30",
+		"fix-esm": "^1.0.1",
+		"json-stable-stringify": "^1.1.1",
+		"mojangson": "^2.0.4",
+		"nbtify": "^2.2.0",
+		"tsc-esm-fix": "^3.1.2",
 		"vscode-debugprotocol": "^1.51.0",
 		"vscode-jsonrpc": "^8.2.1",
 		"vscode-languageclient": "^7.0.0",

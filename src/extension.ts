@@ -2,17 +2,38 @@ import * as cp from "child_process";
 import * as path from "path"
 import * as vscode from 'vscode';
 import { RawData, WebSocket } from 'ws';
-import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
+import { LanguageClient, LanguageClientOptions, ServerOptions, StreamMessageReader } from 'vscode-languageclient/node';
 import { DebuggerExtraInfo } from "./debugger";
 import * as fs from "fs/promises"
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL, URL } from "url";
+const stableStringify = require("json-stable-stringify")
+//why can't you just import like a normal????
+import * as NBTTypes from "nbtify"
+const NBT: typeof NBTTypes = require("fix-esm").require("nbtify");
+
+//the current DF_NBT value df uses. keeping this updated is required
+//to make sure item data doesnt break between minecraft versions
+const DF_NBT = 3500
+const EXTENSION_VERSION = 1
 
 
 const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("terracotta")
 const debuggers: {[key: string]: vscode.DebugSession} = {}
+const validItemIds: Dict<boolean> = {}
+const itemIcons: Dict<string> = {}
 
 let client: LanguageClient
 let outputChannel: vscode.OutputChannel
+let urlStringToLibMap: Dict<ItemLibraryFile> = {}
+
+let itemLibraries: Dict<Dict<ItemLibraryFile>> = {}
+let areLibrariesLoaded: boolean = false
+//layer 1 = projects (key: project path, value: dict of libraries)
+//layer 2 = libraries (key: library id, value: dict of items)
+//layer 3 = items (key: item id, value: true if being edited, undefined if not)
+let itemsBeingEdited: Dict<Dict<Dict<boolean>>> = {}
+let itemImportId: number | undefined //will be undefined if no item is being edited
+let returnItemBeingImported: ((value: any) => void) | undefined
 
 //==========[ file paths ]=========\
 
@@ -34,10 +55,24 @@ function updateTerracottaPath() {
 
 updateTerracottaPath()
 
+//==========[ random util functions that really should be in a seperate file™ ]=========\
+
+function ensurePathExistance(to: Dict<any>, ...path: string[]){
+    let currentLevel: any = to
+
+    for (const key of path) {
+        if (!(key in currentLevel)) {
+            currentLevel[key] = {}
+        }
+        currentLevel = currentLevel[key]
+    }
+
+    return currentLevel
+}
 
 //==========[ codeclient ]=========\
 
-let neededScopes = "write_code movement"
+let neededScopes = "write_code movement inventory"
 let codeClientWS: WebSocket
 
 
@@ -59,9 +94,9 @@ before returning anything, the callback should perform some kind of validation
 to prove that the message it recieved is actually connected to the proper request.
 */
 
-function makeCodeClientGetter<R>(command: string, defaultValue: R, callback: (message: Buffer, returnValue: (value: R) => void) => void): (...args: string[]) => (Promise<R | null>) {
-	return async (...args: string[]): (Promise<R | null>) => {
-		return await new Promise<R | null>(resolve => {
+function makeCodeClientGetter<R>(command: string, defaultValue: R, callback: (message: Buffer, returnValue: (value: R) => void) => void): (...args: string[]) => (Promise<R>) {
+	return async (...args: string[]): (Promise<R>) => {
+		return await new Promise<R>(resolve => {
 			let resolved = false
 	
 			codeclientMessage(command,...args)
@@ -101,6 +136,16 @@ const getCodeClientMode = makeCodeClientGetter<string>("mode","unknown",(message
 	}
 })
 
+const getCodeClientInventory = makeCodeClientGetter<NBTTypes.ListTagLike>("inv",[],(message, returnValue) => {
+	let str = message.toString()
+	try {
+		// mojangson method
+		// const data = mojangson.parse(str)
+		const data = NBT.parse<NBTTypes.ListTagLike>(str)
+		returnValue(data)
+	} catch {}
+})
+
 async function setupCodeClient() {
 	if (codeClientWS) {
 		codeClientWS.close()
@@ -114,7 +159,7 @@ async function setupCodeClient() {
 		let currentScopes = await getCodeClientScopes()
 
 		if (currentScopes != null) {
-			if (!currentScopes.includes("write_code")) {
+			if (!currentScopes.includes("write_code") || !currentScopes.includes("movement") || !currentScopes.includes("inventory")) {
 				codeclientMessage(`scopes ${neededScopes}`)
 			}
 		}
@@ -124,10 +169,991 @@ async function setupCodeClient() {
 	codeClientWS.on("message",(message: RawData | string) => {
 		message = message.toString()
 
-		console.log("[codeclient inc]:",message)
+		// console.log("[codeclient inc]:",message)
 
 		for (const session of Object.values(debuggers)) {
 			session.customRequest("codeclientMessage",message)
+		}
+	})
+}
+
+//==========[ item library editor ]=========\
+
+interface ItemLibraryFile {
+	id: string,
+	items: {[key: string]: {version: number, data: string}},
+	compilationMode: "directInsert" | "insertByVar"
+	fileURL: URL,
+	projectURL: URL,
+}
+
+class ProjectTreeItem extends vscode.TreeItem {
+	constructor(
+		public readonly label: string,
+		public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+		public readonly path: string,
+	) {
+		super(label, collapsibleState);
+	}
+}
+
+class LibraryTreeItem extends vscode.TreeItem {
+	constructor(
+		public readonly label: string,
+		public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+		public readonly library: ItemLibraryFile,
+	) {
+		super(label, collapsibleState);
+	}
+}
+class ItemTreeItem extends vscode.TreeItem {
+	constructor(
+		public readonly label: string,
+		public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+		public readonly library: ItemLibraryFile,
+		public readonly itemId: string
+	) {
+		super(label, collapsibleState);
+	}
+}
+
+export class ItemLibraryEditorProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+	constructor(
+		private readonly context: vscode.ExtensionContext
+	) {}
+
+	getChildren(element?: vscode.TreeItem | undefined): vscode.ProviderResult<vscode.TreeItem[]> {
+		if (!areLibrariesLoaded) {
+			if (element == undefined) {
+				console.log("EEEEE")
+				return [new vscode.TreeItem("Loading...",vscode.TreeItemCollapsibleState.None)]
+			} else {
+				return
+			}
+		}
+		let items: vscode.TreeItem[] = []
+
+		if (element) {
+			if (element instanceof ProjectTreeItem) {
+				let ids = Object.keys(itemLibraries[element.path]!)
+				
+				for (const id of ids) {
+					let library = itemLibraries[element.path]![id]!
+					let item = new LibraryTreeItem(id,ids.length == 1 ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,library)
+					item.contextValue = "library"
+					item.description = decodeURIComponent(new URL(library.fileURL).toString().substring(library.projectURL.toString().length))
+					items.push(item)
+				}
+			}
+			else if (element instanceof LibraryTreeItem) {
+				for (const [id, data] of Object.entries(element.library.items)) {
+					let item = new ItemTreeItem(id,vscode.TreeItemCollapsibleState.None,element.library,id)
+					item.contextValue = "item"
+
+					// display differently if item is being edited
+					if (itemsBeingEdited[element.library.projectURL.toString()]?.[element.library.id]?.[id]) {
+						item.contextValue = "itemBeingEdited"
+						item.description = "(editing)"
+					}
+
+					//parse item data
+					let parsedData: NBTTypes.RootTagLike | undefined
+					try {
+						parsedData = NBT.parse(data.data)
+					} catch {}
+
+					//display as an error if the item data is malformed
+					if (!parsedData || !("version" in data) || !("id" in parsedData) || !(typeof parsedData.id === 'string' || parsedData.id instanceof String)) {
+						item.contextValue = "invalidItem",
+						item.description  = "ERROR ❌"
+						item.iconPath = vscode.Uri.joinPath(this.context.extensionUri,"/assets/icons/invalid_item.svg")
+					} 
+					//if item data is valid, set icon info based on parsed item id
+					else {
+						let itemId = parsedData.id as string
+						if (itemId.startsWith("minecraft:")) {
+							itemId = itemId.substring("minecraft:".length)
+						}
+						if (itemId in itemIcons) {
+							item.iconPath = vscode.Uri.parse(itemIcons[itemId]!)
+						}
+					}
+					
+					items.push(item)
+
+				}
+			}
+		} else {
+			let projectPaths = Object.keys(itemLibraries)
+			for (const path of projectPaths) {
+				let item = new ProjectTreeItem(decodeURIComponent(new URL(path).pathname.split("/").at(-1)!),vscode.TreeItemCollapsibleState.Expanded,path)
+				item.contextValue = "project"
+				if (path.length == 1) {
+					item.description = "(this project)"
+				}
+				items.push(item)
+			}
+		}
+
+		//sort alphabetically
+		items.sort((a, b) => { return (a.label! > b.label!) ? 1 : -1 })
+
+		return items
+	}
+
+	getTreeItem(element: vscode.TreeItem): vscode.TreeItem | Thenable<vscode.TreeItem> {
+		// if (element.contextValue == "library") {
+		// 	element.description = "/items/main.tcil"
+		// } else if (element.contextValue == "item") {
+		// 	element.iconPath = vscode.Uri.parse("https://minecraft.wiki/images/Golden_Apple_JE2_BE2.png?f4719")
+		// 	element.description = "'Golden Apple' x1"
+		// }
+		return element
+	}
+
+	private _onDidChangeTreeData: vscode.EventEmitter<vscode.TreeItem | undefined | null | void> = new vscode.EventEmitter<vscode.TreeItem | undefined | null | void>();
+  	readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+
+	refresh(): void {
+		this._onDidChangeTreeData.fire();
+	}
+}
+
+async function startItemLibraryEditor(context: vscode.ExtensionContext) {
+	//i just set a new personal best for ugliest for loops ever written
+	for (const id of JSON.parse((await fs.readFile(new URL((context.extensionUri + "/assets/data/valid_item_ids.json").toString()))).toString())) {
+		validItemIds[id] = true
+	}
+	for (const [id, link] of Object.entries(JSON.parse((await fs.readFile(new URL((context.extensionUri + "/assets/data/item_icons.json").toString()))).toString()))) {
+		itemIcons[id as string] = link as string
+	}
+
+	//item editor can only work in a workspace
+	if (vscode.workspace.workspaceFolders == undefined) { return }
+
+	//launch provider
+	const editorProvider = new ItemLibraryEditorProvider(context)
+	vscode.window.registerTreeDataProvider('terracotta.itemLibraryEditor', editorProvider);
+
+	let itemImportQuickPick: vscode.QuickPick<vscode.QuickPickItem> | undefined
+
+
+
+	async function updateLibrary(fileURL: URL, projectURL: URL) {
+		function remove() {
+			let fileString = fileURL.toString()
+			let projectString = projectURL.toString()
+			if (fileString in urlStringToLibMap) {
+				let entry = urlStringToLibMap[fileURL.toString()]!
+
+				delete itemLibraries[projectString]![entry.id]
+				delete urlStringToLibMap[fileString]
+				stopEditing(projectString,entry.id)
+			}
+			editorProvider.refresh()
+		}
+
+		let contents: Buffer 
+		try {
+			contents = await fs.readFile(fileURL)
+		} catch {
+			remove()
+			return
+		}
+
+		let parsed: any
+		try {
+			parsed = JSON.parse(contents.toString())
+		} catch (e) {
+			vscode.window.showErrorMessage(`Malformed item library at ${fileURLToPath(fileURL)}: ${e} (malformed JSON). This library will not be loaded.`)
+			remove()
+			return
+		}
+
+		//error if library is missing a field
+		for (const field of ["id","items","compilationMode"]) {
+			if (!(field in parsed)) {
+				vscode.window.showErrorMessage(`Malformed item library at ${fileURLToPath(fileURL)}: Missing '${field}' field. This library will not be loaded.`)
+				remove()
+				return
+			}
+		}
+
+		//handle library file changing its id
+		if (fileURL.toString() in urlStringToLibMap && urlStringToLibMap[fileURL.toString()]?.id != parsed.id) {
+			let oldId = urlStringToLibMap[fileURL.toString()]!.id
+			delete itemLibraries[projectURL.toString()]![oldId]
+			stopEditing(projectURL.toString(),oldId)
+		}
+
+		//error for if there is already a library with this id
+		if (parsed.id in itemLibraries[projectURL.toString()]! && itemLibraries[projectURL.toString()]![parsed.id]!.fileURL.toString() != fileURL.toString()) {
+			vscode.window.showErrorMessage(`Multiple item libraries with id '${parsed.id}' in project ${fileURLToPath(projectURL)}.\n${fileURLToPath(itemLibraries[projectURL.toString()]![parsed.id]!.fileURL)}\n${fileURLToPath(fileURL)}`)
+			return
+		}
+
+		//if this library's id has changed, remove the old id from the master map
+		let oldEntry = urlStringToLibMap[fileURL.toString()]!
+		if (oldEntry && parsed.id != oldEntry) {
+			delete itemLibraries[projectURL.toString()]![oldEntry.id]
+		}
+
+		//if any items were renamed or removed from this library, stop editing them
+		let seenItemIds: Dict<true> = {}
+		for (const itemId of Object.keys(parsed.items)) {
+			seenItemIds[itemId] = true
+		}
+		if (itemsBeingEdited[projectURL.toString()]?.[parsed.id]) {
+			for (const itemId of Object.keys(itemsBeingEdited[projectURL.toString()]![parsed.id]!)) {
+				if (!(itemId in seenItemIds)) {
+					stopEditing(projectURL.toString(),parsed.id,itemId)
+				}
+			}
+		}
+		
+
+		//fill new data into slot
+		let entry = {
+			id: parsed.id,
+			items: parsed.items,
+			compilationMode: parsed.compilationMode,
+			fileURL: fileURL,
+			projectURL: projectURL
+		}
+
+		itemLibraries[projectURL.toString()]![parsed.id] = entry
+		urlStringToLibMap[fileURL.toString()] = entry
+	}
+
+	async function saveLibrary(library: ItemLibraryFile) {
+		await fs.writeFile(library.fileURL,stableStringify({
+			id: library.id,
+			items: library.items,
+			compilationMode: library.compilationMode,
+			lastEditedWithExtensionVersion: EXTENSION_VERSION,
+		},{ space: '  ' }))
+	}
+
+	//i am way too lazy to seperate the validation and parsing into seperate functions
+	function parseMaterial(value: string): any {
+		let material: string = value
+		let nbt: NBTTypes.CompoundTag | undefined
+		
+		//try for material{nbt} format
+		let regexResult = [...value.matchAll(/^(.+?)({.*})\s*$/g)]
+		if (regexResult.length > 0) {
+			material = regexResult[0][1]
+			//validate nbt
+			try {
+				nbt = NBT.parse<NBTTypes.CompoundTag>(regexResult[0][2])
+				let finishedItem = NBT.parse("{}") as any
+				finishedItem.id = material
+				finishedItem.tag = nbt
+				let validation = validateItemData(finishedItem)
+				if (validation !== true) {
+					throw validation
+				}
+			} catch (e) {
+				throw `Malformed item data: ${e}`
+			}
+		}
+
+		//try {id:"",tag:{}} format
+		regexResult = [...value.matchAll(/^\s*({.*})\s*$/g)]
+		if (regexResult.length > 0) {
+			try {
+				let parsed = NBT.parse<NBTTypes.CompoundTag>(regexResult[0][1])
+				let validation = validateItemData(parsed)
+				if (validation !== true) {
+					throw validation
+				}
+				nbt = parsed.tag as NBTTypes.CompoundTag
+				material = parsed.id as string
+			} catch (e) {
+				throw `Malformed item data: ${e}`
+			}
+		}
+
+		
+
+		
+		if (material.length == 0) { return undefined }
+		
+		//chop off minecraft namespace from material if present
+		if (material.startsWith("minecraft:")) {
+			material = material.substring("minecraft:".length) //yeahj im too lazy to count
+		}
+		
+		//validate material
+		if (!(material in validItemIds)) {
+			throw `Invalid material '${material}'`
+		}
+
+		if (nbt == undefined) {nbt = NBT.parse<NBTTypes.CompoundTag>("{}")}
+
+		return [material, nbt]
+	}
+
+	//leave itemId blank to stop editing an entire library
+	function stopEditing(project: string, libraryId: string, itemId: string | undefined = undefined) {
+		if (itemsBeingEdited[project]?.[libraryId]) {
+
+			//remove item
+			if (itemId) {
+				//remove library
+				delete itemsBeingEdited[project][libraryId][itemId]
+
+				//if the library now has no items being edited, remove it
+				if (Object.keys(itemsBeingEdited[project][libraryId]).length == 0) {
+					delete itemsBeingEdited[project][libraryId]
+				}
+			//remove library directly
+			} else {
+				delete itemsBeingEdited[project][libraryId]
+			}
+			
+			
+			//if the project now has no libraries being edited, remove it
+			if (Object.keys(itemsBeingEdited[project]).length == 0) {
+				delete itemsBeingEdited[project]
+			}
+		}
+	}
+
+	//if it returns a string, that means the item id is invalid
+	function validateItemId(itemId: string, library: ItemLibraryFile): string | true {
+		let regexResult = [...itemId.matchAll(/^[a-z0-9_\-./]*([^a-z0-9_\-./]|$)/g)]
+		if (regexResult[0][1]) {
+			return `Invalid character for item id: '${regexResult[0][1]}' (valid characters are lowercase 'a-z', '0-9', '/', '.', '_', and '-')`
+		}
+		
+		if (itemId in library.items) {
+			return `Item with id '${itemId}' already exists in library '${library.id}'`
+		}
+
+		return true
+	}
+
+	function validateItemData(item: any) {
+		if (!("id" in item)) {
+			return `Item has no id field.`
+		}
+
+		if (!(item.id?.toString() === item.id)) {
+			return `Id field must be string.`
+		}
+
+		if ("tag" in item) {
+			if (NBT.getTagType(item.tag) !== NBT.TAG.COMPOUND) {
+				return `Tag field must be compound tag.`
+			}
+			if ("PublicBukkitValues" in item.tag && "hypercube:varitem" in item.tag.PublicBukkitValues) {
+				return `This item is a code value and cannot be saved to libraries.`
+			}
+		}
+
+
+		return true
+	}
+
+	/**
+	 * this will NOT save the library OR update the treeview, its only job is to handle
+	 * modifying item data and adding it to the internal library structure
+	 * @param item this item's data will NOT be modified
+	 */
+	function addItemDataToLibrary(library: ItemLibraryFile, itemId: string, item: any) {
+		item = NBT.parse(NBT.stringify(item))
+
+		//remove fields that don't need to be saved
+		if ("tag" in item) {
+			if ("terracottaEditorItem" in item.tag) {
+				delete item.tag.terracottaEditorItem
+			}
+			if ("PublicBukkitValues" in item.tag) {
+				if ("hypercube:__tc_ii_import" in item.tag.PublicBukkitValues) {
+					delete item.tag.PublicBukkitValues["hypercube:__tc_ii_import"]
+				}
+				if (Object.keys(item.tag.PublicBukkitValues).length == 0) {
+					delete item.tag.PublicBukkitValues
+				}
+			}
+
+			if (Object.keys(item.tag).length == 0) {
+				delete item.tag
+			}
+		}
+		if (!item.id.startsWith("minecraft:")) {
+			item.id = "minecraft:" + item.id
+		}
+		delete item.Count
+		delete item.Slot
+
+		//add new data to library
+		library.items[itemId] = {
+			version: DF_NBT,
+			data: NBT.stringify(item)
+		}
+	}
+
+	//= set up file system watchers =\\
+	const tcilWacther = vscode.workspace.createFileSystemWatcher("**/**.tcil")
+	
+	async function onTcilChanged(fileURI: vscode.Uri) {
+		if (!vscode.workspace.workspaceFolders) { return }
+
+		let folderURI: vscode.Uri | undefined
+		for (const folder of vscode.workspace.workspaceFolders) {
+			if (fileURI.toString().startsWith(folder.uri.toString())) {
+				folderURI = folder.uri
+				break
+			}
+		}
+
+		//how
+		if (folderURI == undefined) { return }
+
+		await updateLibrary(new URL(fileURI.toString()),new URL(folderURI.toString()))
+		editorProvider.refresh()
+	}
+
+	tcilWacther.onDidChange(onTcilChanged)
+	tcilWacther.onDidCreate(onTcilChanged)
+	tcilWacther.onDidDelete(onTcilChanged)
+
+	//= start tracking all existing tcil files =\\
+	async function recurse(folderURL: URL, projectURL: URL) {
+		try { await fs.access(folderURL)} catch { return }
+
+		let contents
+		try {
+			contents = await fs.readdir(folderURL)
+		} catch { return }
+		for (const filePath of contents) {
+			let fileURL = new URL(folderURL.toString() + "/" + filePath)
+
+			try { await fs.access(fileURL)} catch (e) { console.log(e); continue }
+
+			let info = await fs.stat(fileURL)
+			if (info.isDirectory()) {
+				await recurse(fileURL,projectURL)
+			} else {
+				if (filePath.endsWith(".tcil")) {
+					//load its current state
+					await updateLibrary(fileURL,projectURL)
+				}
+			}
+		}
+	}
+
+	for (const folder of vscode.workspace.workspaceFolders) {
+		let url = new URL(folder.uri.toString())
+		itemLibraries[url.toString()] = {}
+		await recurse(url,url)
+	}
+	areLibrariesLoaded = true
+	editorProvider.refresh()
+
+	//= start inventory synchronizer =\\
+	let lastMode: string | undefined
+	async function syncInventory() {
+		//only do inv syncing while in dev
+		if (await getCodeClientMode() != "code") {
+			//if just switching out of dev, stop editing all items
+			if (lastMode == "code") {
+				itemsBeingEdited = {}
+			}
+			return
+		}
+
+		let inventory = await getCodeClientInventory()
+		let modifiedLibraries: Map<ItemLibraryFile, true> = new Map()
+		let editingItemsInInventory: Dict<Dict<Dict<boolean>>> = {} //works the same as itemsBeingEdited
+		
+		let invIndiciesToRemove: number[] = []
+		//first and second layer dicts are project and library id respectively
+		//key: item id = data if the item shoudl be updated, number representing what slot to remove if not
+		let itemsToUpdate: Dict<Dict<Dict<any>>> = {}
+		let itemIdSlots: Dict<number[]> = {}
+		let itemsWereModified = false
+
+		let i = -1
+		for (const item of inventory) {
+			i++
+			let tags = item.tag?.PublicBukkitValues
+			let editorData = item.tag?.terracottaEditorItem
+			//editor item
+			if (editorData && "itemid" in editorData && "libid" in editorData && "project" in editorData){
+				let project = editorData["project"]
+				let libraryId = editorData["libid"]
+				let itemId = editorData["itemid"]
+
+				//if this is an editor item but its not for anything thats actually being edited, mark it for removal
+				if (!itemsBeingEdited?.[project]?.[libraryId]?.[itemId]) {
+					invIndiciesToRemove.push(i)
+					continue
+				}
+				
+				//add to editingItemsInInventory list
+				ensurePathExistance(editingItemsInInventory,project,libraryId)[itemId] = true
+				//add to itemsToUpdate list
+				ensurePathExistance(itemsToUpdate,project,libraryId)
+				
+				//if the same item is present in the inventory multiple times, don't let it be updated
+				if (itemId in itemsToUpdate[project]![libraryId]!) {
+					itemsToUpdate[project]![libraryId]![itemId] = false
+				} else {
+					itemsToUpdate[project]![libraryId]![itemId] = item
+					itemIdSlots[itemId] = []
+				}
+
+				itemIdSlots[itemId]!.push(i)
+			}
+			//importer item
+			else if (tags && "hypercube:__tc_ii_import" in tags) {
+				//import item
+				if (itemImportId && tags["hypercube:__tc_ii_import"] == itemImportId) {
+					if (returnItemBeingImported) {
+						returnItemBeingImported(item)
+					}
+				}
+				//this item's import data doesn't match the current id and is useless
+				//so the tag should be removed to avoid cluttering the item's nbt
+				else {
+					itemsWereModified = true
+					delete tags["hypercube:__tc_ii_import"]
+				}
+			}
+		}
+
+		//update items
+		for (const [project, libraries] of Object.entries(itemsToUpdate)) {
+			for (const [libraryId, items] of Object.entries(libraries!)) {
+				for (const [itemId, item] of Object.entries(items!)) {
+					//this means the item shouldn't be updated for whatever reason
+					if (item == false) {
+						invIndiciesToRemove.push(...itemIdSlots[itemId]!)
+					}
+					//actually save the item's changes
+					else {
+						let library = itemLibraries[project]![libraryId]!
+
+						try {
+							addItemDataToLibrary(library,itemId,item)
+						} catch (e) {
+							vscode.window.showErrorMessage("Could not add item",{
+								modal: true,
+								detail: `${e}`
+							})
+						}
+
+						modifiedLibraries.set(library, true)
+					}
+				}
+			}
+		}
+
+		//unmark items as being edtied if they have been removed from the inventory
+		let itemsWereRemoved = false
+		for (const [project, libraries] of Object.entries(itemsBeingEdited)) {
+			for (const [libraryId, items] of Object.entries(libraries!)) {
+				for (const itemId of Object.keys(items!)) {
+					if (!editingItemsInInventory[project]?.[libraryId]?.[itemId]) {
+						itemsWereRemoved = true
+						stopEditing(project,libraryId,itemId)
+					}
+				}
+			}
+		}
+
+		//remove editor items that aren't actively being edited
+		if (invIndiciesToRemove.length > 0) {
+			itemsWereModified = true
+			invIndiciesToRemove.forEach(i => inventory[i] = undefined) //set all slots marked for removal as undefined
+			inventory.filter(e => e) //actually remove undefined slots from the array
+		}
+		
+		//save libraries
+		for (const library of modifiedLibraries.keys()) {
+			await saveLibrary(library)
+		}
+
+		//only bother updating if stuff actually changed
+		if (itemsWereModified || itemsWereRemoved) {
+			editorProvider.refresh()
+		}
+		if (itemsWereModified) {
+			codeclientMessage("setinv "+NBT.stringify(inventory))
+		}
+	}
+
+	setInterval(syncInventory, 1000);
+	
+
+	
+	//= commmands =\\
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.openFile",async (treeItem: vscode.TreeItem) => {
+		if (treeItem instanceof LibraryTreeItem) {
+			vscode.window.showTextDocument(vscode.Uri.parse(treeItem.library.fileURL.toString()))
+		}
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.copyItemConstructor",(treeItem: ItemTreeItem) => {
+		vscode.env.clipboard.writeText(`litem["${treeItem.itemId.replaceAll('"','\\"')}", "${treeItem.library.id.replaceAll('"','\\"')}"]`)
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.giveStaticCopy",async (treeItem: ItemTreeItem) => {
+		let item = NBT.parse(treeItem.library.items[treeItem.itemId].data) as any
+		item.Count = new NBT.Int8(1)
+		codeclientMessage(`give ${NBT.stringify(item)}`)
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.delete",async (treeItem: vscode.TreeItem) => {
+		//figure out whether its a library or an item being deleted
+		let id: string
+		if (treeItem instanceof LibraryTreeItem) {
+			id = treeItem.library.id
+		} else if (treeItem instanceof ItemTreeItem) {
+			id = treeItem.itemId
+		} else {
+			return
+		}
+
+		const prompt = `Please re-type this ${treeItem instanceof ItemTreeItem ? "item" : "library"}'s id ('${id}') to delete it`
+		
+		//make user re-type id to confirm deletion
+		const input = await vscode.window.showInputBox({
+			title: `${treeItem instanceof ItemTreeItem ? "Item" : "Library"} Deletion Confirmation`,
+			placeHolder: id,
+			prompt: prompt,
+			validateInput: value => {
+				if (value != id) {
+					return {
+						message: prompt,
+						severity: vscode.InputBoxValidationSeverity.Error
+					}
+				} else {
+					return {
+						message: treeItem instanceof ItemTreeItem ? `Press enter to PERMANENTLY DELETE item '${id}' from library '${treeItem.library.id}'` :
+								 `Press enter to PERMANENTLY DELETE library '${treeItem.library.id}'`,
+						severity: vscode.InputBoxValidationSeverity.Warning
+					}
+				}
+			}
+		})
+
+		if (input != id) {return}
+
+		//actually do the deleting
+		if (treeItem instanceof LibraryTreeItem) {
+			await fs.rm(treeItem.library.fileURL)
+			await updateLibrary(treeItem.library.fileURL,treeItem.library.projectURL)
+		} else if (treeItem instanceof ItemTreeItem) {
+			delete treeItem.library.items[treeItem.itemId]
+			await saveLibrary(treeItem.library)
+		}
+		editorProvider.refresh()
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.rename",async (treeItem: ItemTreeItem) => {
+		let oldId: string = treeItem.itemId
+		
+		//ask for new id
+		const newId = await vscode.window.showInputBox({
+			title: `Rename ${treeItem instanceof ItemTreeItem ? "Item" : "Library"} '${oldId}'`,
+			placeHolder: "New ID",
+			validateInput: value => {
+				let validation = validateItemId(value,treeItem.library)
+				if (validation !== true) {
+					return {
+						message: validation,
+						severity: vscode.InputBoxValidationSeverity.Error
+					}
+				}
+			}
+		})
+		if (!newId) { return }
+
+		//actual renaming
+		treeItem.library.items[newId] = treeItem.library.items[oldId]
+		delete treeItem.library.items[oldId]
+
+		await saveLibrary(treeItem.library)
+		editorProvider.refresh()
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.startEditingItem",async (treeItem: ItemTreeItem) => {
+		let currentMode = await getCodeClientMode()
+			if (currentMode == "unknown") {
+			vscode.window.showErrorMessage("Item cannot be edited because Terracotta lacks CodeClient permissions. Try running /auth in Minecraft.")
+			return
+		} else if (currentMode != "code") {
+			vscode.window.showErrorMessage("Items can only be edited while in dev mode.")
+			return
+		}
+
+		let projectUrlString = treeItem.library.projectURL.toString()
+		ensurePathExistance(itemsBeingEdited,projectUrlString,treeItem.library.id)[treeItem.itemId] = true
+
+
+		let parsed: any
+		try {
+			parsed = NBT.parse(treeItem.library.items[treeItem.itemId].data)
+		} catch (e) {
+			vscode.window.showErrorMessage(`Could not edit item ${treeItem.itemId} because its data its invalid: ${e}`)
+			return
+		}
+
+		//prepare item to be sent
+		parsed.Count = new NBT.Int8(1)
+		ensurePathExistance(parsed,"tag","terracottaEditorItem")
+		parsed.tag.terracottaEditorItem["itemid"]  = treeItem.itemId,
+		parsed.tag.terracottaEditorItem["libid"]   = treeItem.library.id,
+		parsed.tag.terracottaEditorItem["project"] = treeItem.library.projectURL.toString(),
+
+		codeclientMessage(`give ${NBT.stringify(parsed)}`)
+		editorProvider.refresh()
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.stopEditingItem",async (treeItem: ItemTreeItem) => {
+		//save latest changes
+		await syncInventory()
+		
+		//remove from currently editing list
+		let projectUrlString = treeItem.library.projectURL.toString()
+		stopEditing(projectUrlString,treeItem.library.id,treeItem.itemId)
+
+		//remove from minecraft inventory
+		let indiciesToRemove: number[] = []
+		let inventory = await getCodeClientInventory()
+
+		let i = -1;
+		for (const item of inventory) {
+			i++
+			let editorData = item.tag?.terracottaEditorItem
+			if (editorData && "itemid" in editorData && "libid" in editorData && "project" in editorData){
+				if (
+					editorData["itemid"]  == treeItem.itemId &&
+					editorData["libid"]   == treeItem.library.id &&
+					editorData["project"] == treeItem.library.projectURL.toString()
+				) {
+					indiciesToRemove.unshift(i)
+				}
+			}
+		}
+
+		indiciesToRemove.forEach(i => inventory.splice(i,1))
+		codeclientMessage("setinv "+NBT.stringify(inventory))
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.importItemToLibrary",async (treeItem: LibraryTreeItem) => {
+		let currentMode = await getCodeClientMode()
+		if (currentMode == "unknown") {
+			vscode.window.showErrorMessage("Items cannot be imported because Terracotta lacks CodeClient permissions. Try running /auth in Minecraft.")
+			return
+		} else if (currentMode != "code") {
+			vscode.window.showErrorMessage("Items can only be imported while in dev mode.")
+			return
+		}
+
+		let thisImportId = Math.floor(Math.random()*1000000)
+		let itemRecieved = false
+		itemImportId = thisImportId
+
+		let itemDataPromise = new Promise<any | null>(resolve => {
+			//if there was a previously active item data promise, kill it
+			if (returnItemBeingImported) { returnItemBeingImported(null) }
+
+			//shoving resolve functions out into the rest of the code is definitely a good idea
+			returnItemBeingImported = resolve
+		})
+
+		//show command window
+		let qp = vscode.window.createQuickPick()
+		itemImportQuickPick = qp
+		qp.items = [
+			{
+				label: "In Minecraft, hold the desired item and run the above command",
+				alwaysShow: true,
+				kind: vscode.QuickPickItemKind.Default,
+			}
+		]
+		qp.value = `/i tag set __tc_ii_import ${itemImportId}`
+		qp.enabled = false
+		qp.ignoreFocusOut = true
+		qp.busy = true
+		qp.title = "Import Item from Minecraft"
+		qp.selectedItems = []
+		qp.activeItems = []
+		qp.onDidHide(() => {
+			if (itemRecieved === false) {
+				itemImportId = undefined
+				//cancel item resolve promise
+				if (returnItemBeingImported) { returnItemBeingImported(null) }
+			}
+			qp.dispose()
+		})
+		qp.show()
+
+		//wait for item to be imported
+		let itemData = await itemDataPromise
+		//make sure item is existant and valid
+		if (itemData == null) { 
+			qp.dispose()
+			return 
+		}
+		let validation = validateItemData(itemData)
+		if (validation !== true) {
+			vscode.window.showErrorMessage("Could not import item",{
+				modal: true,
+				detail: `${validation}`
+			})
+			qp.dispose()
+			return
+		}
+
+		itemRecieved = true
+		qp.dispose()
+
+		
+
+		//show id window
+		const itemId = await vscode.window.showInputBox({
+			title: "Import Item from Minecraft",
+			ignoreFocusOut: true,
+			placeHolder: "Enter Item ID",
+			prompt: `Item will be added to library '${treeItem.library.id}'.`,
+			validateInput: value => {
+				let validation = validateItemId(value,treeItem.library)
+				if (validation !== true) {
+					return {
+						message: validation,
+						severity: vscode.InputBoxValidationSeverity.Error
+					}
+				}
+			}
+		})
+		if (itemId == null) { return }
+
+
+		try {
+			addItemDataToLibrary(treeItem.library,itemId,itemData)
+		} catch (e) {
+			vscode.window.showErrorMessage("Could not import item",{
+				modal: true,
+				detail: `${e}`
+			})
+		}
+
+		
+		await saveLibrary(treeItem.library)
+		editorProvider.refresh()
+
+		//if item was successfully added, remove from mc inv to avoid confusion
+		//remove from minecraft inventory
+		let indiciesToRemove: number[] = []
+		let inventory = await getCodeClientInventory()
+
+		let i = -1;
+		for (const item of inventory) {
+			i++
+			let tags = item.tag?.PublicBukkitValues
+			if (tags && "hypercube:__tc_ii_import" in tags && tags["hypercube:__tc_ii_import"] == thisImportId){
+				indiciesToRemove.unshift(i)
+			}
+		}
+
+		indiciesToRemove.forEach(i => inventory.splice(i,1))
+		codeclientMessage("setinv "+NBT.stringify(inventory))
+
+		itemImportId = undefined
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.addItemToLibrary",async (treeItem: LibraryTreeItem) => {
+		const id = await vscode.window.showInputBox({
+			title: `Add Item to Library '${treeItem.library.id}'`,
+			placeHolder: "Item ID",
+			ignoreFocusOut: true,
+			validateInput: value => {
+				let validation = validateItemId(value,treeItem.library)
+				if (validation !== true) {
+					return {
+						message: validation,
+						severity: vscode.InputBoxValidationSeverity.Error
+					}
+				}
+			}
+		})
+
+		if (id == undefined || id.length == 0) {return}
+
+		const rawMaterial = await vscode.window.showInputBox({
+			title: `Add Item to Library '${treeItem.library.id}'`,
+			placeHolder: "Item Data",
+			ignoreFocusOut: true,
+			prompt: "Accepts the following formats: material ids (cobblestone), materials with nbt attached (iron_sword{Damage:20}), or self-contained ({id:\"minecraft:iron_sword\",tag:{Damage:20}})",
+			validateInput: value => {
+				try { parseMaterial(value) }
+				catch (e) {
+					return {
+						message: e as string,
+						severity: vscode.InputBoxValidationSeverity.Error
+					}
+				}
+			}
+		})
+
+		if (rawMaterial == undefined || rawMaterial.length == 0) { return }
+
+		let materialResult = parseMaterial(rawMaterial)
+		if (materialResult == null) {return}
+		let [material, nbt] = materialResult
+
+		let finishedItem = NBT.parse("{}") as any
+		finishedItem.id = material
+		finishedItem.tag = nbt
+		addItemDataToLibrary(treeItem.library,id,finishedItem)
+
+		saveLibrary(treeItem.library)
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.addLibraryToProject",async (treeItem: ProjectTreeItem) => {
+		const id = await vscode.window.showInputBox({
+			title: "Create New Item Library",
+			placeHolder: "Library ID",
+			ignoreFocusOut: true,
+			validateInput: (value) => {
+				if (value in itemLibraries[treeItem.path]!) {
+					return {
+						message: `Library with id '${value}' already exists`,
+						severity: vscode.InputBoxValidationSeverity.Error
+					}
+				}
+			}
+		})
+
+		if (id == undefined || id.length == 0) { return }
+
+		const path = await vscode.window.showSaveDialog({
+			defaultUri: vscode.Uri.parse(treeItem.path + `/${id}.tcil`),
+			saveLabel: "Create Here",
+			filters: {
+				"Item Library": [".tcil"]
+			},
+			title: "New Library Destination"
+		})
+
+		if (path == undefined) { return }
+		let url = new URL(path.toString())
+
+		try {
+			await fs.writeFile(url,JSON.stringify({
+				"compilationMode": "directInsert",
+				"id": id,
+				"items": {},
+				"lastEditedWithExtensionVersion": EXTENSION_VERSION
+			},null,4))
+		} catch (e) {
+			vscode.window.showErrorMessage(`Could not create item library: ${e}`)
 		}
 	})
 }
@@ -187,10 +1213,40 @@ export function activate(context: vscode.ExtensionContext) {
 	outputChannel.show()
 		
 	setupCodeClient()
+	startItemLibraryEditor(context)
 
 	//= commands =\\
 	vscode.commands.registerCommand("extension.terracotta.refreshCodeClient",() => {
 		setupCodeClient();
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.convertCodeItem",() => {
+		let path = vscode.Uri.parse(vscode.extensions.getExtension("mrawesomeowl.terracotta")!.extensionUri.toString() + "/icons/loc.png")
+		console.log(path)
+		let qp = vscode.window.createQuickPick()
+		qp.title = "Item Converter"
+		qp.placeholder = "Click on an item icon to convert it and copy it to the clipboard"
+		qp.ignoreFocusOut = true
+		qp.items = [
+			{
+				label: "$(cloud-download) Hotbar items:",
+				buttons: [
+					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-string")},
+					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
+					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
+					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
+					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
+					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
+					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-number")},
+					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-variable")},
+					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-gamevalue")}
+				]
+			},
+			{
+				label: "$(code) Convert from Raw NBT",
+			}
+		]
+		qp.show()
 	})
 
 	//= set up debugger =\\
