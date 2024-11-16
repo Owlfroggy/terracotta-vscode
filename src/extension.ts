@@ -1164,15 +1164,7 @@ async function startLanguageServer() {
 	//lmao i am so sorry
 	let serverOptions: ServerOptions = async function() {
 		if (process.platform == "darwin") {
-			/*
-				this one line is the single hackiest line of code i have ever written
-				- the server has to be piped through cat because when the server is started directly, stdin immediately closes for no reason
-				- because it has to be piped, its using exec and not spawn (yes i tried just using exec without piping but to no avail)
-				- maxBuffer is set to infinity because apparently maxBuffer just sets a limit on how much data can be passed through the child's stdout before it violently crahes
-
-				honestly i probably should have just spent a year learning rust
-			*/
-			server = cp.exec(`cd "${terracottaPath}"; cat | ${bunPath} run "${mainScriptPath}" server`,{maxBuffer: Infinity})
+			server = cp.exec(`cd "${terracottaPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${mainScriptPath}" server`,{maxBuffer: Infinity})
 		}
 		else if (process.platform == "win32") {
 			//add windows support later

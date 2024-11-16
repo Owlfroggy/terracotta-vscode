@@ -6,11 +6,6 @@ import { pathToFileURL } from "node:url"
 import * as crypto from "node:crypto"
 import { Stats } from "node:fs"
 import {URL} from "url"
-import { file, hash } from "bun"
-
-let splitPath = __dirname.split("/")
-splitPath.pop()
-let bunPath = (splitPath.join("/")+"/node_modules/.bin/bun").replace(/ /g,"\\ ").replace(/"/g,'\\"')
 
 export interface DebuggerExtraInfo {
     scopes: string[],
@@ -103,7 +98,11 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
 
             let templates: Dict<any>
             try {
-                let command = `cd "${info.terracottaInstallPath}"; ${bunPath} run "${info.terracottaInstallPath}src/main.ts" compile --project "${request.arguments.folder}" --includemeta --plotsize ${launchArguments.plotSize}`
+                let command = `cd "${info.terracottaInstallPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${info.terracottaInstallPath}src/main.ts" compile --project "${request.arguments.folder}" --includemeta --plotsize ${launchArguments.plotSize}`
+                sendEvent('output',{
+                    output: command,
+                    category: "stderr",
+                })
                 templates = JSON.parse(cp.execSync(command,{maxBuffer: Infinity,}).toString())
             }
             catch (e: any) {
