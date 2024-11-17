@@ -160,7 +160,12 @@
 				},
 				{
 					"command": "extension.terracotta.itemEditor.copyItemConstructor",
-					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == itemBeingEdited || viewItem == invalidItem)",
+					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == itemBeingEdited || viewItem == invalidItem || viewItem == outdatedItem)",
+					"group": "inline"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.showMigrationInfo",
+					"when": "view == terracotta.itemLibraryEditor && viewItem == outdatedItem",
 					"group": "inline"
 				},
 
@@ -182,7 +187,7 @@
 				},
 				{
 					"command": "extension.terracotta.itemEditor.copyItemConstructor",
-					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == itemBeingEdited || viewItem == invalidItem)",
+					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == itemBeingEdited || viewItem == invalidItem || viewItem == outdatedItem)",
 					"group": "context@1"
 				},
 				{
@@ -202,7 +207,7 @@
 				},
 				{
 					"command": "extension.terracotta.itemEditor.rename",
-					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == invalidItem)",
+					"when": "view == terracotta.itemLibraryEditor && (viewItem == item || viewItem == invalidItem || viewItem == outdatedItem)",
 					"group": "context@4"
 				},
 				{
@@ -212,6 +217,12 @@
 			]
 		},
 		"commands": [
+			{
+				"command": "extension.terracotta.itemEditor.showMigrationInfo",
+				"title": "Info",
+				"icon": "$(question)",
+				"category": "terracotta"
+			},
 			{
 				"command": "extension.terracotta.itemEditor.addLibraryToProject",
 				"title": "New Library",

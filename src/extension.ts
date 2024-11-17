@@ -14,8 +14,8 @@ const NBT: typeof NBTTypes = require("fix-esm").require("nbtify");
 
 //the current DF_NBT value df uses. keeping this updated is required
 //to make sure item data doesnt break between minecraft versions
-const DF_NBT = 3500
-const EXTENSION_VERSION = 1
+const DF_NBT = 3955
+const EXTENSION_VERSION = "0.0.1"
 
 
 const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("terracotta")
@@ -229,7 +229,6 @@ export class ItemLibraryEditorProvider implements vscode.TreeDataProvider<vscode
 	getChildren(element?: vscode.TreeItem | undefined): vscode.ProviderResult<vscode.TreeItem[]> {
 		if (!areLibrariesLoaded) {
 			if (element == undefined) {
-				console.log("EEEEE")
 				return [new vscode.TreeItem("Loading...",vscode.TreeItemCollapsibleState.None)]
 			} else {
 				return
@@ -272,8 +271,13 @@ export class ItemLibraryEditorProvider implements vscode.TreeDataProvider<vscode
 						item.description  = "ERROR ❌"
 						item.iconPath = vscode.Uri.joinPath(this.context.extensionUri,"/assets/icons/invalid_item.svg")
 					} 
-					//if item data is valid, set icon info based on parsed item id
 					else {
+						//handle different data versions
+						if (data.version != DF_NBT) {
+							item.contextValue = "outdatedItem"
+							item.description = "(needs migration)"
+						}
+						//if item is completely valid, set icon info based on parsed item id
 						let itemId = parsedData.id as string
 						if (itemId.startsWith("minecraft:")) {
 							itemId = itemId.substring("minecraft:".length)
@@ -423,27 +427,29 @@ function parseMaterial(value: string): any {
 	let material: string = value
 	let nbt: NBTTypes.CompoundTag | undefined
 	
-	//try for material{nbt} format
-	let regexResult = [...value.matchAll(/^(.+?)({.*})\s*$/g)]
-	if (regexResult.length > 0) {
-		material = regexResult[0][1]
-		//validate nbt
-		try {
-			nbt = NBT.parse<NBTTypes.CompoundTag>(regexResult[0][2])
-			let finishedItem = NBT.parse("{}") as any
-			finishedItem.id = material
-			finishedItem.tag = nbt
-			let validation = validateItemData(finishedItem)
-			if (validation !== true) {
-				throw validation
-			}
-		} catch (e) {
-			throw `Malformed item data: ${e}`
-		}
-	}
+	// don't feel like updating this to 1.21 since its a whole new syntax \\
+	
+	// //try for material{nbt} format
+	// let regexResult = [...value.matchAll(/^(.+?)({.*})\s*$/g)]
+	// if (regexResult.length > 0) {
+	// 	material = regexResult[0][1]
+	// 	//validate nbt
+	// 	try {
+	// 		nbt = NBT.parse<NBTTypes.CompoundTag>(regexResult[0][2])
+	// 		let finishedItem = NBT.parse("{}") as any
+	// 		finishedItem.id = material
+	// 		finishedItem.components = nbt
+	// 		let validation = validateItemData(finishedItem)
+	// 		if (validation !== true) {
+	// 			throw validation
+	// 		}
+	// 	} catch (e) {
+	// 		throw `Malformed item data: ${e}`
+	// 	}
+	// }
 
 	//try {id:"",tag:{}} format
-	regexResult = [...value.matchAll(/^\s*({.*})\s*$/g)]
+	let regexResult = [...value.matchAll(/^\s*({.*})\s*$/g)]
 	if (regexResult.length > 0) {
 		try {
 			let parsed = NBT.parse<NBTTypes.CompoundTag>(regexResult[0][1])
@@ -451,7 +457,7 @@ function parseMaterial(value: string): any {
 			if (validation !== true) {
 				throw validation
 			}
-			nbt = parsed.tag as NBTTypes.CompoundTag
+			nbt = parsed.components as NBTTypes.CompoundTag
 			material = parsed.id as string
 		} catch (e) {
 			throw `Malformed item data: ${e}`
@@ -527,11 +533,11 @@ function validateItemData(item: any) {
 		return `Id field must be string.`
 	}
 
-	if ("tag" in item) {
-		if (NBT.getTagType(item.tag) !== NBT.TAG.COMPOUND) {
-			return `Tag field must be compound tag.`
+	if ("components" in item) {
+		if (NBT.getTagType(item.components) !== NBT.TAG.COMPOUND) {
+			return `Components field must be compound tag.`
 		}
-		if ("PublicBukkitValues" in item.tag && "hypercube:varitem" in item.tag.PublicBukkitValues) {
+		if (item.components["minecraft:custom_data"]?.PublicBukkitValues?.["hypercube:varitem"]) {
 			return `This item is a code value and cannot be saved to libraries.`
 		}
 	}
@@ -549,27 +555,28 @@ function addItemDataToLibrary(library: ItemLibraryFile, itemId: string, item: an
 	item = NBT.parse(NBT.stringify(item))
 
 	//remove fields that don't need to be saved
-	if ("tag" in item) {
-		if ("terracottaEditorItem" in item.tag) {
-			delete item.tag.terracottaEditorItem
+	let customData = item.components?.["minecraft:custom_data"]
+	if (customData) {
+		if ("terracottaEditorItem" in customData) {
+			delete customData.terracottaEditorItem
 		}
-		if ("PublicBukkitValues" in item.tag) {
-			if ("hypercube:__tc_ii_import" in item.tag.PublicBukkitValues) {
-				delete item.tag.PublicBukkitValues["hypercube:__tc_ii_import"]
+		if ("PublicBukkitValues" in customData) {
+			if ("hypercube:__tc_ii_import" in customData.PublicBukkitValues) {
+				delete customData.PublicBukkitValues["hypercube:__tc_ii_import"]
 			}
-			if (Object.keys(item.tag.PublicBukkitValues).length == 0) {
-				delete item.tag.PublicBukkitValues
+			if (Object.keys(customData.PublicBukkitValues).length == 0) {
+				delete customData.PublicBukkitValues
 			}
 		}
 
-		if (Object.keys(item.tag).length == 0) {
-			delete item.tag
+		if (Object.keys(customData).length == 0) {
+			delete item.components["minecraft:custom_data"]
 		}
 	}
 	if (!item.id.startsWith("minecraft:")) {
 		item.id = "minecraft:" + item.id
 	}
-	delete item.Count
+	delete item.count
 	delete item.Slot
 
 	//add new data to library
@@ -606,8 +613,8 @@ async function syncInventory() {
 	let i = -1
 	for (const item of inventory) {
 		i++
-		let tags = item.tag?.PublicBukkitValues
-		let editorData = item.tag?.terracottaEditorItem
+		let tags = item.components?.["minecraft:custom_data"]?.PublicBukkitValues
+		let editorData = item.components?.["minecraft:custom_data"]?.terracottaEditorItem
 		//editor item
 		if (editorData && "itemid" in editorData && "libid" in editorData && "project" in editorData) {
 			let project = editorData["project"]
@@ -796,6 +803,13 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 
 	
 	//= commmands =\\
+	vscode.commands.registerCommand("extension.terracotta.itemEditor.showMigrationInfo",async (treeItem: ItemTreeItem) => {
+		vscode.window.showInformationMessage("Item Migration Help",{
+			detail: "This item was saved for an older version of minecraft. It can still be used in your code but cannot be edited in minecraft until it is migrated.",
+			modal: true,
+		})
+	})
+
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.openFile",async (treeItem: vscode.TreeItem) => {
 		if (treeItem instanceof LibraryTreeItem) {
 			vscode.window.showTextDocument(vscode.Uri.parse(treeItem.library.fileURL.toString()))
@@ -910,10 +924,10 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 
 		//prepare item to be sent
 		parsed.Count = new NBT.Int8(1)
-		ensurePathExistance(parsed,"tag","terracottaEditorItem")
-		parsed.tag.terracottaEditorItem["itemid"]  = treeItem.itemId,
-		parsed.tag.terracottaEditorItem["libid"]   = treeItem.library.id,
-		parsed.tag.terracottaEditorItem["project"] = treeItem.library.projectURL.toString(),
+		let editorData = ensurePathExistance(parsed,"components","minecraft:custom_data","terracottaEditorItem")
+		editorData["itemid"]  = treeItem.itemId,
+		editorData["libid"]   = treeItem.library.id,
+		editorData["project"] = treeItem.library.projectURL.toString(),
 
 		codeclientMessage(`give ${NBT.stringify(parsed)}`)
 		itemEditorProvider.refresh()
@@ -934,7 +948,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		let i = -1;
 		for (const item of inventory) {
 			i++
-			let editorData = item.tag?.terracottaEditorItem
+			let editorData = item.components?.["minecraft:custom_data"]?.terracottaEditorItem
 			if (editorData && "itemid" in editorData && "libid" in editorData && "project" in editorData){
 				if (
 					editorData["itemid"]  == treeItem.itemId &&
@@ -1008,7 +1022,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		}
 		let validation = validateItemData(itemData)
 		if (validation !== true) {
-			vscode.window.showErrorMessage("Could not import item",{
+			vscode.window.showErrorMessage("Item cannot be imported",{
 				modal: true,
 				detail: `${validation}`
 			})
@@ -1061,7 +1075,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		let i = -1;
 		for (const item of inventory) {
 			i++
-			let tags = item.tag?.PublicBukkitValues
+			let tags = item.components?.["minecraft:custom_data"]?.PublicBukkitValues
 			if (tags && "hypercube:__tc_ii_import" in tags && tags["hypercube:__tc_ii_import"] == thisImportId){
 				indiciesToRemove.unshift(i)
 			}
@@ -1115,7 +1129,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 
 		let finishedItem = NBT.parse("{}") as any
 		finishedItem.id = material
-		finishedItem.tag = nbt
+		finishedItem.components = nbt
 		addItemDataToLibrary(treeItem.library,id,finishedItem)
 
 		saveLibrary(treeItem.library)
