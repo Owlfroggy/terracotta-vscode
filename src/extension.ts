@@ -6,6 +6,7 @@ import { LanguageClient, LanguageClientOptions, ServerOptions, StreamMessageRead
 import { DebuggerExtraInfo } from "./debugger";
 import * as fs from "fs/promises"
 import { fileURLToPath, pathToFileURL, URL } from "url";
+import { Dict } from "./util/dict"
 const stableStringify = require("json-stable-stringify")
 //why can't you just import like a normal????
 import * as NBTTypes from "nbtify"

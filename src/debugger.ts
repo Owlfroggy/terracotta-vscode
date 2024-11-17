@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url"
 import * as crypto from "node:crypto"
 import { Stats } from "node:fs"
 import {URL} from "url"
+import { Dict } from "./util/dict"
 
 export interface DebuggerExtraInfo {
     scopes: string[],
