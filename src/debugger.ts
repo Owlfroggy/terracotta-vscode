@@ -104,7 +104,7 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                     output: command,
                     category: "stderr",
                 })
-                templates = JSON.parse(cp.execSync(command,{maxBuffer: Infinity,}).toString())
+                templates = JSON.parse(cp.execSync(command).toString())
             }
             catch (e: any) {
                 sendEvent('output',{
@@ -117,9 +117,8 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
             //make sure codeclient can actually do the thing
             if (!info.scopes.includes("write_code")) {
                 sendEvent('output',{
-                    output: "Terracotta does is missing codeclient permissions. Please run /auth in your Minecraft client",
+                    output: "Terracotta is missing codeclient permissions. Please run /auth in your Minecraft client",
                     category: "console",
-    
                 })
                 sendEvent("redoScopes")
                 process.exit(126)

@@ -27,6 +27,7 @@ let client: LanguageClient
 let outputChannel: vscode.OutputChannel
 let urlStringToLibMap: Dict<ItemLibraryFile> = {}
 
+let itemEditorProvider: ItemLibraryEditorProvider
 let itemLibraries: Dict<Dict<ItemLibraryFile>> = {}
 let areLibrariesLoaded: boolean = false
 //layer 1 = projects (key: project path, value: dict of libraries)
@@ -35,6 +36,8 @@ let areLibrariesLoaded: boolean = false
 let itemsBeingEdited: Dict<Dict<Dict<boolean>>> = {}
 let itemImportId: number | undefined //will be undefined if no item is being edited
 let returnItemBeingImported: ((value: any) => void) | undefined
+
+let codeClientTask: "idle" | "compiling" = "idle"
 
 //==========[ file paths ]=========\
 
@@ -320,6 +323,397 @@ export class ItemLibraryEditorProvider implements vscode.TreeDataProvider<vscode
 	}
 }
 
+async function updateLibrary(fileURL: URL, projectURL: URL) {
+	function remove() {
+		let fileString = fileURL.toString()
+		let projectString = projectURL.toString()
+		if (fileString in urlStringToLibMap) {
+			let entry = urlStringToLibMap[fileURL.toString()]!
+
+			delete itemLibraries[projectString]![entry.id]
+			delete urlStringToLibMap[fileString]
+			stopEditing(projectString,entry.id)
+		}
+		itemEditorProvider.refresh()
+	}
+
+	let contents: Buffer 
+	try {
+		contents = await fs.readFile(fileURL)
+	} catch {
+		remove()
+		return
+	}
+
+	let parsed: any
+	try {
+		parsed = JSON.parse(contents.toString())
+	} catch (e) {
+		vscode.window.showErrorMessage(`Malformed item library at ${fileURLToPath(fileURL)}: ${e} (malformed JSON). This library will not be loaded.`)
+		remove()
+		return
+	}
+
+	//error if library is missing a field
+	for (const field of ["id","items","compilationMode"]) {
+		if (!(field in parsed)) {
+			vscode.window.showErrorMessage(`Malformed item library at ${fileURLToPath(fileURL)}: Missing '${field}' field. This library will not be loaded.`)
+			remove()
+			return
+		}
+	}
+
+	//handle library file changing its id
+	if (fileURL.toString() in urlStringToLibMap && urlStringToLibMap[fileURL.toString()]?.id != parsed.id) {
+		let oldId = urlStringToLibMap[fileURL.toString()]!.id
+		delete itemLibraries[projectURL.toString()]![oldId]
+		stopEditing(projectURL.toString(),oldId)
+	}
+
+	//error for if there is already a library with this id
+	if (parsed.id in itemLibraries[projectURL.toString()]! && itemLibraries[projectURL.toString()]![parsed.id]!.fileURL.toString() != fileURL.toString()) {
+		vscode.window.showErrorMessage(`Multiple item libraries with id '${parsed.id}' in project ${fileURLToPath(projectURL)}.\n${fileURLToPath(itemLibraries[projectURL.toString()]![parsed.id]!.fileURL)}\n${fileURLToPath(fileURL)}`)
+		return
+	}
+
+	//if this library's id has changed, remove the old id from the master map
+	let oldEntry = urlStringToLibMap[fileURL.toString()]!
+	if (oldEntry && parsed.id != oldEntry) {
+		delete itemLibraries[projectURL.toString()]![oldEntry.id]
+	}
+
+	//if any items were renamed or removed from this library, stop editing them
+	let seenItemIds: Dict<true> = {}
+	for (const itemId of Object.keys(parsed.items)) {
+		seenItemIds[itemId] = true
+	}
+	if (itemsBeingEdited[projectURL.toString()]?.[parsed.id]) {
+		for (const itemId of Object.keys(itemsBeingEdited[projectURL.toString()]![parsed.id]!)) {
+			if (!(itemId in seenItemIds)) {
+				stopEditing(projectURL.toString(),parsed.id,itemId)
+			}
+		}
+	}
+	
+
+	//fill new data into slot
+	let entry = {
+		id: parsed.id,
+		items: parsed.items,
+		compilationMode: parsed.compilationMode,
+		fileURL: fileURL,
+		projectURL: projectURL
+	}
+
+	itemLibraries[projectURL.toString()]![parsed.id] = entry
+	urlStringToLibMap[fileURL.toString()] = entry
+}
+
+async function saveLibrary(library: ItemLibraryFile) {
+	await fs.writeFile(library.fileURL,stableStringify({
+		id: library.id,
+		items: library.items,
+		compilationMode: library.compilationMode,
+		lastEditedWithExtensionVersion: EXTENSION_VERSION,
+	},{ space: '  ' }))
+}
+
+//i am way too lazy to seperate the validation and parsing into seperate functions
+function parseMaterial(value: string): any {
+	let material: string = value
+	let nbt: NBTTypes.CompoundTag | undefined
+	
+	//try for material{nbt} format
+	let regexResult = [...value.matchAll(/^(.+?)({.*})\s*$/g)]
+	if (regexResult.length > 0) {
+		material = regexResult[0][1]
+		//validate nbt
+		try {
+			nbt = NBT.parse<NBTTypes.CompoundTag>(regexResult[0][2])
+			let finishedItem = NBT.parse("{}") as any
+			finishedItem.id = material
+			finishedItem.tag = nbt
+			let validation = validateItemData(finishedItem)
+			if (validation !== true) {
+				throw validation
+			}
+		} catch (e) {
+			throw `Malformed item data: ${e}`
+		}
+	}
+
+	//try {id:"",tag:{}} format
+	regexResult = [...value.matchAll(/^\s*({.*})\s*$/g)]
+	if (regexResult.length > 0) {
+		try {
+			let parsed = NBT.parse<NBTTypes.CompoundTag>(regexResult[0][1])
+			let validation = validateItemData(parsed)
+			if (validation !== true) {
+				throw validation
+			}
+			nbt = parsed.tag as NBTTypes.CompoundTag
+			material = parsed.id as string
+		} catch (e) {
+			throw `Malformed item data: ${e}`
+		}
+	}
+
+	
+
+	
+	if (material.length == 0) { return undefined }
+	
+	//chop off minecraft namespace from material if present
+	if (material.startsWith("minecraft:")) {
+		material = material.substring("minecraft:".length) //yeahj im too lazy to count
+	}
+	
+	//validate material
+	if (!(material in validItemIds)) {
+		throw `Invalid material '${material}'`
+	}
+
+	if (nbt == undefined) {nbt = NBT.parse<NBTTypes.CompoundTag>("{}")}
+
+	return [material, nbt]
+}
+
+//leave itemId blank to stop editing an entire library
+function stopEditing(project: string, libraryId: string, itemId: string | undefined = undefined) {
+	if (itemsBeingEdited[project]?.[libraryId]) {
+
+		//remove item
+		if (itemId) {
+			//remove library
+			delete itemsBeingEdited[project][libraryId][itemId]
+
+			//if the library now has no items being edited, remove it
+			if (Object.keys(itemsBeingEdited[project][libraryId]).length == 0) {
+				delete itemsBeingEdited[project][libraryId]
+			}
+		//remove library directly
+		} else {
+			delete itemsBeingEdited[project][libraryId]
+		}
+		
+		
+		//if the project now has no libraries being edited, remove it
+		if (Object.keys(itemsBeingEdited[project]).length == 0) {
+			delete itemsBeingEdited[project]
+		}
+	}
+}
+
+//if it returns a string, that means the item id is invalid
+function validateItemId(itemId: string, library: ItemLibraryFile): string | true {
+	let regexResult = [...itemId.matchAll(/^[a-z0-9_\-./]*([^a-z0-9_\-./]|$)/g)]
+	if (regexResult[0][1]) {
+		return `Invalid character for item id: '${regexResult[0][1]}' (valid characters are lowercase 'a-z', '0-9', '/', '.', '_', and '-')`
+	}
+	
+	if (itemId in library.items) {
+		return `Item with id '${itemId}' already exists in library '${library.id}'`
+	}
+
+	return true
+}
+
+function validateItemData(item: any) {
+	if (!("id" in item)) {
+		return `Item has no id field.`
+	}
+
+	if (!(item.id?.toString() === item.id)) {
+		return `Id field must be string.`
+	}
+
+	if ("tag" in item) {
+		if (NBT.getTagType(item.tag) !== NBT.TAG.COMPOUND) {
+			return `Tag field must be compound tag.`
+		}
+		if ("PublicBukkitValues" in item.tag && "hypercube:varitem" in item.tag.PublicBukkitValues) {
+			return `This item is a code value and cannot be saved to libraries.`
+		}
+	}
+
+
+	return true
+}
+
+/**
+ * this will NOT save the library OR update the treeview, its only job is to handle
+ * modifying item data and adding it to the internal library structure
+ * @param item this item's data will NOT be modified
+ */
+function addItemDataToLibrary(library: ItemLibraryFile, itemId: string, item: any) {
+	item = NBT.parse(NBT.stringify(item))
+
+	//remove fields that don't need to be saved
+	if ("tag" in item) {
+		if ("terracottaEditorItem" in item.tag) {
+			delete item.tag.terracottaEditorItem
+		}
+		if ("PublicBukkitValues" in item.tag) {
+			if ("hypercube:__tc_ii_import" in item.tag.PublicBukkitValues) {
+				delete item.tag.PublicBukkitValues["hypercube:__tc_ii_import"]
+			}
+			if (Object.keys(item.tag.PublicBukkitValues).length == 0) {
+				delete item.tag.PublicBukkitValues
+			}
+		}
+
+		if (Object.keys(item.tag).length == 0) {
+			delete item.tag
+		}
+	}
+	if (!item.id.startsWith("minecraft:")) {
+		item.id = "minecraft:" + item.id
+	}
+	delete item.Count
+	delete item.Slot
+
+	//add new data to library
+	library.items[itemId] = {
+		version: DF_NBT,
+		data: NBT.stringify(item)
+	}
+}
+
+let lastMode: string | undefined
+async function syncInventory() {
+	if (codeClientTask != "idle") { return }
+
+	//only do inv syncing while in dev
+	if (await getCodeClientMode() != "code") {
+		//if just switching out of dev, stop editing all items
+		if (lastMode == "code") {
+			itemsBeingEdited = {}
+		}
+		return
+	}
+
+	let inventory = await getCodeClientInventory()
+	let modifiedLibraries: Map<ItemLibraryFile, true> = new Map()
+	let editingItemsInInventory: Dict<Dict<Dict<boolean>>> = {} //works the same as itemsBeingEdited
+
+	let invIndiciesToRemove: number[] = []
+	//first and second layer dicts are project and library id respectively
+	//key: item id = data if the item shoudl be updated, number representing what slot to remove if not
+	let itemsToUpdate: Dict<Dict<Dict<any>>> = {}
+	let itemIdSlots: Dict<number[]> = {}
+	let itemsWereModified = false
+
+	let i = -1
+	for (const item of inventory) {
+		i++
+		let tags = item.tag?.PublicBukkitValues
+		let editorData = item.tag?.terracottaEditorItem
+		//editor item
+		if (editorData && "itemid" in editorData && "libid" in editorData && "project" in editorData) {
+			let project = editorData["project"]
+			let libraryId = editorData["libid"]
+			let itemId = editorData["itemid"]
+
+			//if this is an editor item but its not for anything thats actually being edited, mark it for removal
+			if (!itemsBeingEdited?.[project]?.[libraryId]?.[itemId]) {
+				invIndiciesToRemove.push(i)
+				continue
+			}
+
+			//add to editingItemsInInventory list
+			ensurePathExistance(editingItemsInInventory, project, libraryId)[itemId] = true
+			//add to itemsToUpdate list
+			ensurePathExistance(itemsToUpdate, project, libraryId)
+
+			//if the same item is present in the inventory multiple times, don't let it be updated
+			if (itemId in itemsToUpdate[project]![libraryId]!) {
+				itemsToUpdate[project]![libraryId]![itemId] = false
+			} else {
+				itemsToUpdate[project]![libraryId]![itemId] = item
+				itemIdSlots[itemId] = []
+			}
+
+			itemIdSlots[itemId]!.push(i)
+		}
+		//importer item
+		else if (tags && "hypercube:__tc_ii_import" in tags) {
+			//import item
+			if (itemImportId && tags["hypercube:__tc_ii_import"] == itemImportId) {
+				if (returnItemBeingImported) {
+					returnItemBeingImported(item)
+				}
+			}
+			//this item's import data doesn't match the current id and is useless
+			//so the tag should be removed to avoid cluttering the item's nbt
+			else {
+				itemsWereModified = true
+				delete tags["hypercube:__tc_ii_import"]
+			}
+		}
+	}
+
+	//update items
+	for (const [project, libraries] of Object.entries(itemsToUpdate)) {
+		for (const [libraryId, items] of Object.entries(libraries!)) {
+			for (const [itemId, item] of Object.entries(items!)) {
+				//this means the item shouldn't be updated for whatever reason
+				if (item == false) {
+					invIndiciesToRemove.push(...itemIdSlots[itemId]!)
+				}
+				//actually save the item's changes
+				else {
+					let library = itemLibraries[project]![libraryId]!
+
+					try {
+						addItemDataToLibrary(library, itemId, item)
+					} catch (e) {
+						vscode.window.showErrorMessage("Could not add item", {
+							modal: true,
+							detail: `${e}`
+						})
+					}
+
+					modifiedLibraries.set(library, true)
+				}
+			}
+		}
+	}
+
+	//unmark items as being edtied if they have been removed from the inventory
+	let itemsWereRemoved = false
+	for (const [project, libraries] of Object.entries(itemsBeingEdited)) {
+		for (const [libraryId, items] of Object.entries(libraries!)) {
+			for (const itemId of Object.keys(items!)) {
+				if (!editingItemsInInventory[project]?.[libraryId]?.[itemId]) {
+					itemsWereRemoved = true
+					stopEditing(project, libraryId, itemId)
+				}
+			}
+		}
+	}
+
+	//remove editor items that aren't actively being edited
+	if (invIndiciesToRemove.length > 0) {
+		itemsWereModified = true
+		invIndiciesToRemove.forEach(i => inventory[i] = undefined) //set all slots marked for removal as undefined
+		inventory.filter(e => e) //actually remove undefined slots from the array
+	}
+
+	//save libraries
+	for (const library of modifiedLibraries.keys()) {
+		await saveLibrary(library)
+	}
+
+	//only bother updating if stuff actually changed
+	if (itemsWereModified || itemsWereRemoved) {
+		itemEditorProvider.refresh()
+	}
+	if (itemsWereModified) {
+		codeclientMessage("setinv " + NBT.stringify(inventory))
+	}
+}
+
+
 async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 	//i just set a new personal best for ugliest for loops ever written
 	for (const id of JSON.parse((await fs.readFile(new URL((context.extensionUri + "/assets/data/valid_item_ids.json").toString()))).toString())) {
@@ -333,268 +727,10 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 	if (vscode.workspace.workspaceFolders == undefined) { return }
 
 	//launch provider
-	const editorProvider = new ItemLibraryEditorProvider(context)
-	vscode.window.registerTreeDataProvider('terracotta.itemLibraryEditor', editorProvider);
+	itemEditorProvider = new ItemLibraryEditorProvider(context)
+	vscode.window.registerTreeDataProvider('terracotta.itemLibraryEditor', itemEditorProvider);
 
 	let itemImportQuickPick: vscode.QuickPick<vscode.QuickPickItem> | undefined
-
-
-
-	async function updateLibrary(fileURL: URL, projectURL: URL) {
-		function remove() {
-			let fileString = fileURL.toString()
-			let projectString = projectURL.toString()
-			if (fileString in urlStringToLibMap) {
-				let entry = urlStringToLibMap[fileURL.toString()]!
-
-				delete itemLibraries[projectString]![entry.id]
-				delete urlStringToLibMap[fileString]
-				stopEditing(projectString,entry.id)
-			}
-			editorProvider.refresh()
-		}
-
-		let contents: Buffer 
-		try {
-			contents = await fs.readFile(fileURL)
-		} catch {
-			remove()
-			return
-		}
-
-		let parsed: any
-		try {
-			parsed = JSON.parse(contents.toString())
-		} catch (e) {
-			vscode.window.showErrorMessage(`Malformed item library at ${fileURLToPath(fileURL)}: ${e} (malformed JSON). This library will not be loaded.`)
-			remove()
-			return
-		}
-
-		//error if library is missing a field
-		for (const field of ["id","items","compilationMode"]) {
-			if (!(field in parsed)) {
-				vscode.window.showErrorMessage(`Malformed item library at ${fileURLToPath(fileURL)}: Missing '${field}' field. This library will not be loaded.`)
-				remove()
-				return
-			}
-		}
-
-		//handle library file changing its id
-		if (fileURL.toString() in urlStringToLibMap && urlStringToLibMap[fileURL.toString()]?.id != parsed.id) {
-			let oldId = urlStringToLibMap[fileURL.toString()]!.id
-			delete itemLibraries[projectURL.toString()]![oldId]
-			stopEditing(projectURL.toString(),oldId)
-		}
-
-		//error for if there is already a library with this id
-		if (parsed.id in itemLibraries[projectURL.toString()]! && itemLibraries[projectURL.toString()]![parsed.id]!.fileURL.toString() != fileURL.toString()) {
-			vscode.window.showErrorMessage(`Multiple item libraries with id '${parsed.id}' in project ${fileURLToPath(projectURL)}.\n${fileURLToPath(itemLibraries[projectURL.toString()]![parsed.id]!.fileURL)}\n${fileURLToPath(fileURL)}`)
-			return
-		}
-
-		//if this library's id has changed, remove the old id from the master map
-		let oldEntry = urlStringToLibMap[fileURL.toString()]!
-		if (oldEntry && parsed.id != oldEntry) {
-			delete itemLibraries[projectURL.toString()]![oldEntry.id]
-		}
-
-		//if any items were renamed or removed from this library, stop editing them
-		let seenItemIds: Dict<true> = {}
-		for (const itemId of Object.keys(parsed.items)) {
-			seenItemIds[itemId] = true
-		}
-		if (itemsBeingEdited[projectURL.toString()]?.[parsed.id]) {
-			for (const itemId of Object.keys(itemsBeingEdited[projectURL.toString()]![parsed.id]!)) {
-				if (!(itemId in seenItemIds)) {
-					stopEditing(projectURL.toString(),parsed.id,itemId)
-				}
-			}
-		}
-		
-
-		//fill new data into slot
-		let entry = {
-			id: parsed.id,
-			items: parsed.items,
-			compilationMode: parsed.compilationMode,
-			fileURL: fileURL,
-			projectURL: projectURL
-		}
-
-		itemLibraries[projectURL.toString()]![parsed.id] = entry
-		urlStringToLibMap[fileURL.toString()] = entry
-	}
-
-	async function saveLibrary(library: ItemLibraryFile) {
-		await fs.writeFile(library.fileURL,stableStringify({
-			id: library.id,
-			items: library.items,
-			compilationMode: library.compilationMode,
-			lastEditedWithExtensionVersion: EXTENSION_VERSION,
-		},{ space: '  ' }))
-	}
-
-	//i am way too lazy to seperate the validation and parsing into seperate functions
-	function parseMaterial(value: string): any {
-		let material: string = value
-		let nbt: NBTTypes.CompoundTag | undefined
-		
-		//try for material{nbt} format
-		let regexResult = [...value.matchAll(/^(.+?)({.*})\s*$/g)]
-		if (regexResult.length > 0) {
-			material = regexResult[0][1]
-			//validate nbt
-			try {
-				nbt = NBT.parse<NBTTypes.CompoundTag>(regexResult[0][2])
-				let finishedItem = NBT.parse("{}") as any
-				finishedItem.id = material
-				finishedItem.tag = nbt
-				let validation = validateItemData(finishedItem)
-				if (validation !== true) {
-					throw validation
-				}
-			} catch (e) {
-				throw `Malformed item data: ${e}`
-			}
-		}
-
-		//try {id:"",tag:{}} format
-		regexResult = [...value.matchAll(/^\s*({.*})\s*$/g)]
-		if (regexResult.length > 0) {
-			try {
-				let parsed = NBT.parse<NBTTypes.CompoundTag>(regexResult[0][1])
-				let validation = validateItemData(parsed)
-				if (validation !== true) {
-					throw validation
-				}
-				nbt = parsed.tag as NBTTypes.CompoundTag
-				material = parsed.id as string
-			} catch (e) {
-				throw `Malformed item data: ${e}`
-			}
-		}
-
-		
-
-		
-		if (material.length == 0) { return undefined }
-		
-		//chop off minecraft namespace from material if present
-		if (material.startsWith("minecraft:")) {
-			material = material.substring("minecraft:".length) //yeahj im too lazy to count
-		}
-		
-		//validate material
-		if (!(material in validItemIds)) {
-			throw `Invalid material '${material}'`
-		}
-
-		if (nbt == undefined) {nbt = NBT.parse<NBTTypes.CompoundTag>("{}")}
-
-		return [material, nbt]
-	}
-
-	//leave itemId blank to stop editing an entire library
-	function stopEditing(project: string, libraryId: string, itemId: string | undefined = undefined) {
-		if (itemsBeingEdited[project]?.[libraryId]) {
-
-			//remove item
-			if (itemId) {
-				//remove library
-				delete itemsBeingEdited[project][libraryId][itemId]
-
-				//if the library now has no items being edited, remove it
-				if (Object.keys(itemsBeingEdited[project][libraryId]).length == 0) {
-					delete itemsBeingEdited[project][libraryId]
-				}
-			//remove library directly
-			} else {
-				delete itemsBeingEdited[project][libraryId]
-			}
-			
-			
-			//if the project now has no libraries being edited, remove it
-			if (Object.keys(itemsBeingEdited[project]).length == 0) {
-				delete itemsBeingEdited[project]
-			}
-		}
-	}
-
-	//if it returns a string, that means the item id is invalid
-	function validateItemId(itemId: string, library: ItemLibraryFile): string | true {
-		let regexResult = [...itemId.matchAll(/^[a-z0-9_\-./]*([^a-z0-9_\-./]|$)/g)]
-		if (regexResult[0][1]) {
-			return `Invalid character for item id: '${regexResult[0][1]}' (valid characters are lowercase 'a-z', '0-9', '/', '.', '_', and '-')`
-		}
-		
-		if (itemId in library.items) {
-			return `Item with id '${itemId}' already exists in library '${library.id}'`
-		}
-
-		return true
-	}
-
-	function validateItemData(item: any) {
-		if (!("id" in item)) {
-			return `Item has no id field.`
-		}
-
-		if (!(item.id?.toString() === item.id)) {
-			return `Id field must be string.`
-		}
-
-		if ("tag" in item) {
-			if (NBT.getTagType(item.tag) !== NBT.TAG.COMPOUND) {
-				return `Tag field must be compound tag.`
-			}
-			if ("PublicBukkitValues" in item.tag && "hypercube:varitem" in item.tag.PublicBukkitValues) {
-				return `This item is a code value and cannot be saved to libraries.`
-			}
-		}
-
-
-		return true
-	}
-
-	/**
-	 * this will NOT save the library OR update the treeview, its only job is to handle
-	 * modifying item data and adding it to the internal library structure
-	 * @param item this item's data will NOT be modified
-	 */
-	function addItemDataToLibrary(library: ItemLibraryFile, itemId: string, item: any) {
-		item = NBT.parse(NBT.stringify(item))
-
-		//remove fields that don't need to be saved
-		if ("tag" in item) {
-			if ("terracottaEditorItem" in item.tag) {
-				delete item.tag.terracottaEditorItem
-			}
-			if ("PublicBukkitValues" in item.tag) {
-				if ("hypercube:__tc_ii_import" in item.tag.PublicBukkitValues) {
-					delete item.tag.PublicBukkitValues["hypercube:__tc_ii_import"]
-				}
-				if (Object.keys(item.tag.PublicBukkitValues).length == 0) {
-					delete item.tag.PublicBukkitValues
-				}
-			}
-
-			if (Object.keys(item.tag).length == 0) {
-				delete item.tag
-			}
-		}
-		if (!item.id.startsWith("minecraft:")) {
-			item.id = "minecraft:" + item.id
-		}
-		delete item.Count
-		delete item.Slot
-
-		//add new data to library
-		library.items[itemId] = {
-			version: DF_NBT,
-			data: NBT.stringify(item)
-		}
-	}
 
 	//= set up file system watchers =\\
 	const tcilWacther = vscode.workspace.createFileSystemWatcher("**/**.tcil")
@@ -614,7 +750,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		if (folderURI == undefined) { return }
 
 		await updateLibrary(new URL(fileURI.toString()),new URL(folderURI.toString()))
-		editorProvider.refresh()
+		itemEditorProvider.refresh()
 	}
 
 	tcilWacther.onDidChange(onTcilChanged)
@@ -652,141 +788,9 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		await recurse(url,url)
 	}
 	areLibrariesLoaded = true
-	editorProvider.refresh()
+	itemEditorProvider.refresh()
 
 	//= start inventory synchronizer =\\
-	let lastMode: string | undefined
-	async function syncInventory() {
-		//only do inv syncing while in dev
-		if (await getCodeClientMode() != "code") {
-			//if just switching out of dev, stop editing all items
-			if (lastMode == "code") {
-				itemsBeingEdited = {}
-			}
-			return
-		}
-
-		let inventory = await getCodeClientInventory()
-		let modifiedLibraries: Map<ItemLibraryFile, true> = new Map()
-		let editingItemsInInventory: Dict<Dict<Dict<boolean>>> = {} //works the same as itemsBeingEdited
-		
-		let invIndiciesToRemove: number[] = []
-		//first and second layer dicts are project and library id respectively
-		//key: item id = data if the item shoudl be updated, number representing what slot to remove if not
-		let itemsToUpdate: Dict<Dict<Dict<any>>> = {}
-		let itemIdSlots: Dict<number[]> = {}
-		let itemsWereModified = false
-
-		let i = -1
-		for (const item of inventory) {
-			i++
-			let tags = item.tag?.PublicBukkitValues
-			let editorData = item.tag?.terracottaEditorItem
-			//editor item
-			if (editorData && "itemid" in editorData && "libid" in editorData && "project" in editorData){
-				let project = editorData["project"]
-				let libraryId = editorData["libid"]
-				let itemId = editorData["itemid"]
-
-				//if this is an editor item but its not for anything thats actually being edited, mark it for removal
-				if (!itemsBeingEdited?.[project]?.[libraryId]?.[itemId]) {
-					invIndiciesToRemove.push(i)
-					continue
-				}
-				
-				//add to editingItemsInInventory list
-				ensurePathExistance(editingItemsInInventory,project,libraryId)[itemId] = true
-				//add to itemsToUpdate list
-				ensurePathExistance(itemsToUpdate,project,libraryId)
-				
-				//if the same item is present in the inventory multiple times, don't let it be updated
-				if (itemId in itemsToUpdate[project]![libraryId]!) {
-					itemsToUpdate[project]![libraryId]![itemId] = false
-				} else {
-					itemsToUpdate[project]![libraryId]![itemId] = item
-					itemIdSlots[itemId] = []
-				}
-
-				itemIdSlots[itemId]!.push(i)
-			}
-			//importer item
-			else if (tags && "hypercube:__tc_ii_import" in tags) {
-				//import item
-				if (itemImportId && tags["hypercube:__tc_ii_import"] == itemImportId) {
-					if (returnItemBeingImported) {
-						returnItemBeingImported(item)
-					}
-				}
-				//this item's import data doesn't match the current id and is useless
-				//so the tag should be removed to avoid cluttering the item's nbt
-				else {
-					itemsWereModified = true
-					delete tags["hypercube:__tc_ii_import"]
-				}
-			}
-		}
-
-		//update items
-		for (const [project, libraries] of Object.entries(itemsToUpdate)) {
-			for (const [libraryId, items] of Object.entries(libraries!)) {
-				for (const [itemId, item] of Object.entries(items!)) {
-					//this means the item shouldn't be updated for whatever reason
-					if (item == false) {
-						invIndiciesToRemove.push(...itemIdSlots[itemId]!)
-					}
-					//actually save the item's changes
-					else {
-						let library = itemLibraries[project]![libraryId]!
-
-						try {
-							addItemDataToLibrary(library,itemId,item)
-						} catch (e) {
-							vscode.window.showErrorMessage("Could not add item",{
-								modal: true,
-								detail: `${e}`
-							})
-						}
-
-						modifiedLibraries.set(library, true)
-					}
-				}
-			}
-		}
-
-		//unmark items as being edtied if they have been removed from the inventory
-		let itemsWereRemoved = false
-		for (const [project, libraries] of Object.entries(itemsBeingEdited)) {
-			for (const [libraryId, items] of Object.entries(libraries!)) {
-				for (const itemId of Object.keys(items!)) {
-					if (!editingItemsInInventory[project]?.[libraryId]?.[itemId]) {
-						itemsWereRemoved = true
-						stopEditing(project,libraryId,itemId)
-					}
-				}
-			}
-		}
-
-		//remove editor items that aren't actively being edited
-		if (invIndiciesToRemove.length > 0) {
-			itemsWereModified = true
-			invIndiciesToRemove.forEach(i => inventory[i] = undefined) //set all slots marked for removal as undefined
-			inventory.filter(e => e) //actually remove undefined slots from the array
-		}
-		
-		//save libraries
-		for (const library of modifiedLibraries.keys()) {
-			await saveLibrary(library)
-		}
-
-		//only bother updating if stuff actually changed
-		if (itemsWereModified || itemsWereRemoved) {
-			editorProvider.refresh()
-		}
-		if (itemsWereModified) {
-			codeclientMessage("setinv "+NBT.stringify(inventory))
-		}
-	}
-
 	setInterval(syncInventory, 1000);
 	
 
@@ -852,7 +856,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 			delete treeItem.library.items[treeItem.itemId]
 			await saveLibrary(treeItem.library)
 		}
-		editorProvider.refresh()
+		itemEditorProvider.refresh()
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.rename",async (treeItem: ItemTreeItem) => {
@@ -879,7 +883,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		delete treeItem.library.items[oldId]
 
 		await saveLibrary(treeItem.library)
-		editorProvider.refresh()
+		itemEditorProvider.refresh()
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.startEditingItem",async (treeItem: ItemTreeItem) => {
@@ -912,7 +916,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		parsed.tag.terracottaEditorItem["project"] = treeItem.library.projectURL.toString(),
 
 		codeclientMessage(`give ${NBT.stringify(parsed)}`)
-		editorProvider.refresh()
+		itemEditorProvider.refresh()
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.stopEditingItem",async (treeItem: ItemTreeItem) => {
@@ -1047,7 +1051,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 
 		
 		await saveLibrary(treeItem.library)
-		editorProvider.refresh()
+		itemEditorProvider.refresh()
 
 		//if item was successfully added, remove from mc inv to avoid confusion
 		//remove from minecraft inventory
@@ -1249,6 +1253,10 @@ export function activate(context: vscode.ExtensionContext) {
 	vscode.debug.onDidReceiveDebugSessionCustomEvent(async event => {
 		//i would use an ACTUAL REQUEST for this but theres not a callback for that 
 		if (event.event == "requestInfo") {
+			itemsBeingEdited = {}
+			codeClientTask = "compiling"
+			
+			//then return the actual info
 			event.session.customRequest("returnInfo",{
 				scopes: await getCodeClientScopes(),
 				mode: await getCodeClientMode(),
@@ -1299,6 +1307,7 @@ export function activate(context: vscode.ExtensionContext) {
 	})
 
 	vscode.debug.onDidTerminateDebugSession(session => {
+		codeClientTask = "idle"
 		delete debuggers[session.id]
 	})
 
