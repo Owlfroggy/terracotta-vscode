@@ -15,7 +15,7 @@
 		"onLanguage:terracotta",
 		"onDebug",
 		"workspaceContains:**/**.tc",
-		"workspaceContains:**/**.tcil.json"
+		"workspaceContains:**/**.tcil"
 	],
 	"main": "./out/extension.js",
 	"contributes": {

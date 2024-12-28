@@ -101,7 +101,7 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
             try {
                 let command = `cd "${info.terracottaInstallPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${info.terracottaInstallPath}src/main.ts" compile --project "${request.arguments.folder}" --includemeta --plotsize ${launchArguments.plotSize}`
                 sendEvent('output',{
-                    output: command,
+                    output: command+"\n",
                     category: "stderr",
                 })
                 templates = JSON.parse(cp.execSync(command).toString())

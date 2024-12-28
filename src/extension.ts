@@ -38,6 +38,8 @@ let itemImportId: number | undefined //will be undefined if no item is being edi
 let returnItemBeingImported: ((value: any) => void) | undefined
 
 let codeClientTask: "idle" | "compiling" = "idle"
+let codeClientConnected = false
+let codeClientAuthed = false
 
 //==========[ file paths ]=========\
 
@@ -159,6 +161,7 @@ async function setupCodeClient() {
 	codeClientWS = new WebSocket("ws://localhost:31375")
     
 	codeClientWS.on("open",async () => {
+		codeClientConnected = true
 		//request write code permission if this doesnt already have it
 		let currentScopes = await getCodeClientScopes()
 
@@ -173,11 +176,21 @@ async function setupCodeClient() {
 	codeClientWS.on("message",(message: RawData | string) => {
 		message = message.toString()
 
+		if (message == "auth") {
+			codeClientAuthed = true
+			return
+		}
 		// console.log("[codeclient inc]:",message)
 
 		for (const session of Object.values(debuggers)) {
 			session.customRequest("codeclientMessage",message)
 		}
+	})
+
+	codeClientWS.on("close",() => {
+		codeClientConnected = false
+		codeClientAuthed = false
+		console.log("CLOSED!")
 	})
 }
 
@@ -589,9 +602,17 @@ function addItemDataToLibrary(library: ItemLibraryFile, itemId: string, item: an
 let lastMode: string | undefined
 async function syncInventory() {
 	if (codeClientTask != "idle") { return }
+	if (!codeClientAuthed) { return }
 
 	//only do inv syncing while in dev
-	if (await getCodeClientMode() != "code") {
+	let mode = await getCodeClientMode()
+	if (mode != "code") {
+		//if auth is removed by the player
+		//this shouldn't be in the inv syncing function but i do not care
+		if (mode == "unknown") {
+			codeClientAuthed = false
+		}
+
 		//if just switching out of dev, stop editing all items
 		if (lastMode == "code") {
 			itemsBeingEdited = {}
@@ -720,6 +741,29 @@ async function syncInventory() {
 	}
 }
 
+//returns `true` 
+async function requireCodeClientConnection(refusalMessage: string, requiredMode: "code" | undefined = undefined): Promise<boolean> {
+	if (!codeClientConnected) {
+		vscode.window.showErrorMessage(`${refusalMessage} because Terracotta could not connect to CodeClient.`,{},"Retry CodeClient Connection").then(value => {
+			if (value == "Retry CodeClient Connection") {
+				setupCodeClient()
+			}
+		})
+		return false
+	} else if (!codeClientAuthed) {
+		vscode.window.showErrorMessage(`${refusalMessage} because Terracotta lacks CodeClient permissions. Try running /auth in Minecraft.`)
+		return false
+	}
+	if (requiredMode !== undefined) {
+		let currentMode = await getCodeClientMode()
+		if (currentMode != requiredMode) {
+			vscode.window.showErrorMessage(`${refusalMessage} because you are not in ${requiredMode == "code" ? "dev" : requiredMode} mode.`)
+			return false
+		}
+	}
+	return true
+}
+
 
 async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 	//i just set a new personal best for ugliest for loops ever written
@@ -817,10 +861,12 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.copyItemConstructor",(treeItem: ItemTreeItem) => {
-		vscode.env.clipboard.writeText(`litem["${treeItem.itemId.replaceAll('"','\\"')}", "${treeItem.library.id.replaceAll('"','\\"')}"]`)
+		vscode.env.clipboard.writeText(`litem["${treeItem.library.id.replaceAll('"','\\"')}", "${treeItem.itemId.replaceAll('"','\\"')}"]`)
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.giveStaticCopy",async (treeItem: ItemTreeItem) => {
+		if (!await requireCodeClientConnection("Item cannot be given","code")) {return}
+
 		let item = NBT.parse(treeItem.library.items[treeItem.itemId].data) as any
 		item.Count = new NBT.Int8(1)
 		codeclientMessage(`give ${NBT.stringify(item)}`)
@@ -901,14 +947,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.startEditingItem",async (treeItem: ItemTreeItem) => {
-		let currentMode = await getCodeClientMode()
-			if (currentMode == "unknown") {
-			vscode.window.showErrorMessage("Item cannot be edited because Terracotta lacks CodeClient permissions. Try running /auth in Minecraft.")
-			return
-		} else if (currentMode != "code") {
-			vscode.window.showErrorMessage("Items can only be edited while in dev mode.")
-			return
-		}
+		if (!await requireCodeClientConnection("Item cannot be edited","code")) {return}
 
 		let projectUrlString = treeItem.library.projectURL.toString()
 		ensurePathExistance(itemsBeingEdited,projectUrlString,treeItem.library.id)[treeItem.itemId] = true
@@ -965,14 +1004,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.importItemToLibrary",async (treeItem: LibraryTreeItem) => {
-		let currentMode = await getCodeClientMode()
-		if (currentMode == "unknown") {
-			vscode.window.showErrorMessage("Items cannot be imported because Terracotta lacks CodeClient permissions. Try running /auth in Minecraft.")
-			return
-		} else if (currentMode != "code") {
-			vscode.window.showErrorMessage("Items can only be imported while in dev mode.")
-			return
-		}
+		if (!await requireCodeClientConnection("Items cannot be imported","code")) {return}
 
 		let thisImportId = Math.floor(Math.random()*1000000)
 		let itemRecieved = false
@@ -1109,7 +1141,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 			title: `Add Item to Library '${treeItem.library.id}'`,
 			placeHolder: "Item Data",
 			ignoreFocusOut: true,
-			prompt: "Accepts the following formats: material ids (cobblestone), materials with nbt attached (iron_sword{Damage:20}), or self-contained ({id:\"minecraft:iron_sword\",tag:{Damage:20}})",
+			prompt: "Accepts the following formats: material ids (cobblestone), or self-contained item nbt ({id:\"minecraft:iron_sword\",components:{damage:20}})",
 			validateInput: value => {
 				try { parseMaterial(value) }
 				catch (e) {
@@ -1194,9 +1226,9 @@ async function startLanguageServer() {
 	
 	// Options to control the language client
 	let clientOptions: LanguageClientOptions = {
-		documentSelector: [{ scheme: 'file', language: 'terracotta' }],
+		documentSelector: [{ scheme: 'file', language: 'terracotta' }, { scheme: 'file', pattern: '**/*.tcil'}],
 		synchronize: {
-			fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
+			fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{tc,tcil}')
 		},
 		outputChannel: outputChannel,
 		outputChannelName: "terracotta"
@@ -1231,7 +1263,9 @@ export function activate(context: vscode.ExtensionContext) {
 		setupCodeClient();
 	})
 
-	vscode.commands.registerCommand("extension.terracotta.convertCodeItem",() => {
+	vscode.commands.registerCommand("extension.terracotta.convertCodeItem",async () => {
+		if (!await requireCodeClientConnection("Values cannot be imported","code")) {return}
+
 		let path = vscode.Uri.parse(vscode.extensions.getExtension("mrawesomeowl.terracotta")!.extensionUri.toString() + "/icons/loc.png")
 		console.log(path)
 		let qp = vscode.window.createQuickPick()
