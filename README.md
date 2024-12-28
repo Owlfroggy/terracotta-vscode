@@ -3,6 +3,7 @@ Provides the following features for Terracotta:
 - Autocomplete/Intellisense
 - Syntax highlighting
 - Signature help
+- Easy interfacing with item libraries
 - CodeClient integration
 
 Currently you have to manually download the language server from [here](https://github.com/MrAwesomeOwl/terracotta) and set the extension setting `terracotta.installPath` to its path.
