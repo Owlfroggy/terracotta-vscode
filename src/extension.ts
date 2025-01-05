@@ -1193,7 +1193,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 			defaultUri: vscode.Uri.parse(treeItem.path + `/${id}`),
 			saveLabel: "Create Here",
 			filters: {
-				"Item Library": [".tcil"]
+				"Item Library": ["tcil"]
 			},
 			title: "New Library Destination"
 		})
@@ -1256,13 +1256,11 @@ async function startLanguageServer() {
 	try {
 		//check to see that the install path is valid
 		await fs.access(terracottaPath, fs.constants.F_OK | fs.constants.R_OK | fs.constants.X_OK)
-		console.log("can access",terracottaPath)
 	} catch (e) {
-		console.log("balls")
 		vscode.window.showErrorMessage("Language server path is either invalid or non-existant. Check the setting 'terracotta.installPath'")
 		return
 	}
-	console.log("that workde i guess")
+	
 	client = new LanguageClient(
 		'terracotta',
 		'Terracotta',

@@ -508,7 +508,6 @@
 	"dependencies": {
 		"await-notify": "^1.0.1",
 		"base64-js": "^1.5.1",
-		"bun": "^1.0.30",
 		"fix-esm": "^1.0.1",
 		"json-stable-stringify": "^1.1.1",
 		"mojangson": "^2.0.4",
