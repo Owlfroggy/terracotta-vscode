@@ -11,7 +11,8 @@ import { Dict } from "./util/dict"
 export interface DebuggerExtraInfo {
     scopes: string[],
     mode: "spawn" | "play" | "build" | "code" | "unknown"
-    terracottaInstallPath: string
+    terracottaInstallPath: string,
+    useSourceCode?: boolean
 }
 
 //==========[ util functions ]=========\
@@ -99,14 +100,28 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
 
             let templates: Dict<any>
             try {
-                let command = `cd "${info.terracottaInstallPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${info.terracottaInstallPath}src/main.ts" compile --project "${request.arguments.folder}" --includemeta --plotsize ${launchArguments.plotSize}`
+                let command: string 
+                if (info.useSourceCode) {
+                    command = `cd "${info.terracottaInstallPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${info.terracottaInstallPath}src/main.ts"`
+                } else {
+			        if (process.platform == "win32") {
+                        command = `"${info.terracottaInstallPath.replaceAll('"','\\"')}"`
+                    } else {
+                        command = `"${info.terracottaInstallPath.replaceAll("\\","\\\\").replaceAll('"','\\"')}"`
+                    }
+                }
+                command += ` compile --project "${request.arguments.folder}" --includemeta --plotsize ${launchArguments.plotSize}`
                 sendEvent('output',{
                     output: command+"\n",
                     category: "stderr",
                 })
-                templates = JSON.parse(cp.execSync(command).toString())
+                templates = JSON.parse(cp.execSync(command,{cwd: "/Users/games"}).toString())
             }
             catch (e: any) {
+                // sendEvent('output',{
+                //     output: "Error:" + JSON.stringify(e) + e.toString(),
+                //     category: "stderr",
+                // })
                 sendEvent('output',{
                     output: e.output[2].toString(),
                     category: "stderr",

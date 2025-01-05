@@ -43,20 +43,25 @@ let codeClientAuthed = false
 
 //==========[ file paths ]=========\
 
+const delimiter = process.platform == "win32" ? "\\" : "/"
 let splitPath = __dirname.split("/")
 splitPath.pop()
 let bunPath = (splitPath.join("/")+"/node_modules/.bin/bun").replace(/ /g,"\\ ").replace(/"/g,'\\"')
 
-
 let terracottaPath: string
+let sourcePath: string
 let mainScriptPath: string
+
+let useSourceCode: boolean
 
 function updateTerracottaPath() {
 	const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("terracotta") //WHY DOES IT MAKE ME RUN THIS AGAIN TO GET UPDATED VALUE??? WHOSE IDEA WAS THIS
-	terracottaPath = (config.get("installPath") as string).replace(/"/g,'\\"')
-	console.log("NEW PATH",terracottaPath)
-	if (!terracottaPath.endsWith("/")) { terracottaPath += "/" }
-	mainScriptPath = terracottaPath + "src/main.ts"
+	terracottaPath = (config.get("installPath") as string)
+	sourcePath = (config.get("sourcePath") as string).replaceAll("\\","\\\\").replaceAll('"','\\"').replaceAll("'","\\'")
+	if (!sourcePath.endsWith(delimiter)) { sourcePath += delimiter }
+	mainScriptPath = sourcePath + `src${delimiter}main.ts`
+	
+	useSourceCode = config.get("useSourceCode")!
 }
 
 updateTerracottaPath()
@@ -1185,7 +1190,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		if (id == undefined || id.length == 0) { return }
 
 		const path = await vscode.window.showSaveDialog({
-			defaultUri: vscode.Uri.parse(treeItem.path + `/${id}.tcil`),
+			defaultUri: vscode.Uri.parse(treeItem.path + `/${id}`),
 			saveLabel: "Create Here",
 			filters: {
 				"Item Library": [".tcil"]
@@ -1212,17 +1217,31 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 async function startLanguageServer() {
 	let server: cp.ChildProcess
 
-	//lmao i am so sorry
-	let serverOptions: ServerOptions = async function() {
-		if (process.platform == "darwin") {
-			server = cp.exec(`cd "${terracottaPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${mainScriptPath}" server`,{maxBuffer: Infinity})
-		}
-		else if (process.platform == "win32") {
-			//add windows support later
-		}
+	// lmao i am so sorry
+	let serverOptions: ServerOptions
+
+	if (useSourceCode) {
+		serverOptions = async function() {
+			if (process.platform == "darwin") {
+				if (useSourceCode) {
+					server = cp.exec(`cd "${sourcePath}"; ~/.deno/bin/deno run --allow-read --allow-env "${mainScriptPath}" server`,{maxBuffer: Infinity})
+				} else {
+					server = cp.exec(`/tmp/terracotta\\ mac`)
+				}
+			}
+			else if (process.platform == "win32") {
+				//add windows support later
 				
-		return Promise.resolve(server)
+			}
+			return Promise.resolve(server)
+		}
+	} else {
+		serverOptions = {
+			command: terracottaPath,
+			args: ["server"]
+		}
 	}
+				
 	
 	// Options to control the language client
 	let clientOptions: LanguageClientOptions = {
@@ -1236,17 +1255,21 @@ async function startLanguageServer() {
 
 	try {
 		//check to see that the install path is valid
-		await fs.access(pathToFileURL(terracottaPath))
-		client = new LanguageClient(
-			'terracotta',
-			'Terracotta',
-			serverOptions,
-			clientOptions
-		);
-		client.start()
-	} catch {
+		await fs.access(terracottaPath, fs.constants.F_OK | fs.constants.R_OK | fs.constants.X_OK)
+		console.log("can access",terracottaPath)
+	} catch (e) {
+		console.log("balls")
 		vscode.window.showErrorMessage("Language server path is either invalid or non-existant. Check the setting 'terracotta.installPath'")
+		return
 	}
+	console.log("that workde i guess")
+	client = new LanguageClient(
+		'terracotta',
+		'Terracotta',
+		serverOptions,
+		clientOptions
+	);
+	client.start()
 }
 
 //==========[ extension events ]=========\
@@ -1308,7 +1331,8 @@ export function activate(context: vscode.ExtensionContext) {
 			event.session.customRequest("returnInfo",{
 				scopes: await getCodeClientScopes(),
 				mode: await getCodeClientMode(),
-				terracottaInstallPath: terracottaPath
+				terracottaInstallPath: useSourceCode ? sourcePath : terracottaPath,
+				useSourceCode: useSourceCode
 			} as DebuggerExtraInfo)
 		}
 		else if (event.event == "switchToDev") {
@@ -1361,12 +1385,12 @@ export function activate(context: vscode.ExtensionContext) {
 
 	//= settings response =\\
 	vscode.workspace.onDidChangeConfiguration(event => {
-		if (event.affectsConfiguration("terracotta.installPath")) {
-			updateTerracottaPath()
+		if (event.affectsConfiguration("terracotta.installPath") || event.affectsConfiguration("terracotta.useSourceCode") || (useSourceCode && event.affectsConfiguration("terracotta.sourcePath"))) {
 			if (client == undefined) {
+				updateTerracottaPath()
 				startLanguageServer()
 			} else {
-				vscode.window.showInformationMessage("The Terracotta language server is already running. Please restart vscode for the new install path to take effect")
+				vscode.window.showWarningMessage("The Terracotta language server is already running. Please restart vscode for the new install path to take effect.")
 			}
 		}
 	})

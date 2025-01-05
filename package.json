@@ -23,7 +23,7 @@
 			{
 				"id": "terracotta",
 				"aliases": [
-					"tc"
+					"Terracotta"
 				],
 				"extensions": [
 					".tc"
@@ -79,9 +79,21 @@
 					"default": "verbose"
 				},
 				"terracotta.installPath": {
-					"scope": "resource",
+					"scope": "application",
 					"type": "string",
-					"description": "The path to the terracotta installation (should point to the uppermost folder of the installation, not to anything inside)",
+					"description": "The path to the Terracotta executable",
+					"default": ""
+				},
+				"terracotta.useSourceCode": {
+					"scope": "application",
+					"type": "boolean",
+					"description": "Whether or not to directly run the Terracotta source code when compiling or starting the language server",
+					"default": ""
+				},
+				"terracotta.sourcePath": {
+					"scope": "application",
+					"type": "string",
+					"description": "Only relvent if Use Source Code is enabled. The path to the Terracotta source code (should point to the uppermost folder of the installation, not to anything inside)",
 					"default": ""
 				}
 			}
