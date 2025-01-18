@@ -7,6 +7,7 @@ import * as crypto from "node:crypto"
 import { Stats } from "node:fs"
 import {URL} from "url"
 import { Dict } from "./util/dict"
+import * as os from "os"
 
 export interface DebuggerExtraInfo {
     scopes: string[],
@@ -115,7 +116,7 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                     output: command+"\n",
                     category: "stderr",
                 })
-                templates = JSON.parse(cp.execSync(command,{cwd: "/Users/games"}).toString())
+                templates = JSON.parse(cp.execSync(command,{cwd: os.homedir()}).toString())
             }
             catch (e: any) {
                 // sendEvent('output',{
