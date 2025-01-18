@@ -1255,7 +1255,12 @@ async function startLanguageServer() {
 
 	try {
 		//check to see that the install path is valid
-		await fs.access(terracottaPath, fs.constants.F_OK | fs.constants.R_OK | fs.constants.X_OK)
+		if (useSourceCode) {
+			await fs.access(sourcePath, fs.constants.F_OK | fs.constants.R_OK | fs.constants.X_OK)
+		} else {
+			await fs.access(terracottaPath, fs.constants.F_OK | fs.constants.R_OK | fs.constants.X_OK)
+
+		}
 	} catch (e) {
 		vscode.window.showErrorMessage("Language server path is either invalid or non-existant. Check the setting 'terracotta.installPath'")
 		return
