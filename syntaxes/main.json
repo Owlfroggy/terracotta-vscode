@@ -375,7 +375,8 @@
                 {"include": "#functionHeader"},
                 {"include": "#processHeader"},
                 {"include": "#paramHeader"},
-                {"include": "#lagslayerCancelHeader"}
+                {"include": "#lagslayerCancelHeader"},
+                {"include": "#descriptionHeader"}
             ],
             "repository": {
                 "playerEventHeader": {
@@ -396,6 +397,10 @@
                 },
                 "lagslayerCancelHeader": {
                     "match": "(?<=^|(;\\s*))LAGSLAYER_CANCEL(?![\\w])",
+                    "name": "storage.type meta.function.tc tc.header.lagslayer-cancel"
+                },
+                "descriptionHeader": {
+                    "match": "(?<=^|(;\\s*))DESC(?![\\w])",
                     "name": "storage.type meta.function.tc tc.header.lagslayer-cancel"
                 },
                 "paramHeader": {
