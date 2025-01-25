@@ -376,7 +376,8 @@
                 {"include": "#processHeader"},
                 {"include": "#paramHeader"},
                 {"include": "#lagslayerCancelHeader"},
-                {"include": "#descriptionHeader"}
+                {"include": "#descriptionHeader"},
+                {"include": "#returnsHeader"}
             ],
             "repository": {
                 "playerEventHeader": {
@@ -401,7 +402,20 @@
                 },
                 "descriptionHeader": {
                     "match": "(?<=^|(;\\s*))DESC(?![\\w])",
-                    "name": "storage.type meta.function.tc tc.header.lagslayer-cancel"
+                    "name": "storage.type meta.function.tc tc.header.description"
+                },
+                "returnsHeader": {
+                    "match": "(?<=^|(?:;\\s*))(RETURNS)\\s*(\\w*)?(?![\\w])",
+                    "captures": {
+                        "1": {
+                            "name": "storage.type meta.function.tc df.parameter.tc tc.header.returns"
+                        },
+                        "2": {
+                            "patterns": [
+                                {"include": "#standaloneTypeName"}
+                            ]
+                        }
+                    }
                 },
                 "paramHeader": {
                     "match": "(?<=^|(?:;?\\W+))(PARAM)(?![\\w])\\s*(\\[\\]|\\[(?:\\\\\\]|[^\\]])*[^\\\\]\\]|\\[.*|\\w*)?(:)?([^=;]*)(?==|;|$)",
