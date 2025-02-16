@@ -1391,6 +1391,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	vscode.debug.onDidStartDebugSession(session => {
 		debuggers[session.id] = session
+		stopEditingAllItems()
 	})
 
 	vscode.debug.onDidTerminateDebugSession(session => {
