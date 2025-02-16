@@ -528,6 +528,16 @@ function stopEditing(project: string, libraryId: string, itemId: string | undefi
 	}
 }
 
+function stopEditingAllItems() {
+	// when switching out of dev mode, stop editing all items
+	for (const [project, libraries] of Object.entries(itemsBeingEdited)) {
+		for (const libraryId of Object.keys(libraries!)) {
+			stopEditing(project,libraryId)
+		}
+	}
+	itemEditorProvider.refresh()
+}
+
 //if it returns a string, that means the item id is invalid
 function validateItemId(itemId: string, library: ItemLibraryFile): string | true {
 	let regexResult = [...itemId.matchAll(/^[a-z0-9_\-./]*([^a-z0-9_\-./]|$)/g)]
@@ -612,6 +622,8 @@ async function syncInventory() {
 	//only do inv syncing while in dev
 	let mode = await getCodeClientMode()
 	if (mode != "code") {
+		stopEditingAllItems()
+
 		//if auth is removed by the player
 		//this shouldn't be in the inv syncing function but i do not care
 		if (mode == "unknown") {
