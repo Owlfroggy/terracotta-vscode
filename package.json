@@ -371,6 +371,11 @@
 								"type": "number",
 								"description": "How many minecraft blocks long the codespace being compiled to is\nBasic: 50\nLarge: 100\nMassive: 300\nMega: 300",
 								"default": 50
+							},
+							"alwaysReplace": {
+								"type": "array",
+								"description": "Always re-place these templates even if they haven't changed. Can help with CodeClient bugging out while placing.\nEach entry should be a string that takes the format of 'HEADER templateName' e.g. 'FUNCTION useItem' or 'PLAYER_EVENT Join' or 'PROCESS name w/ special chars!'",
+								"default": []
 							}
 						}
 					}

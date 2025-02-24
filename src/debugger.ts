@@ -214,8 +214,14 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
 
             let newHashFileContents: string = ""
             let placerCommands: string[] = []
+            let changedTemplateCount: number = 0
 
             ;["functions","processes","playerEvents","entityEvents"].forEach(headerType => {
+                const tcHeader = 
+                    headerType == "functions" ? "FUNCTION" : 
+                    headerType == "processes" ? "PROCESS" : 
+                    headerType == "playerEvents" ? "PLAYER_EVENT" :
+                    "ENTITY_EVENT"
                 let hashes: Dict<string> = {}
 
                 //get hashes of new templates
@@ -235,7 +241,15 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                         //remove command (when codeclient adds it)
                     }
                     //if template is new or has changed
-                    else if (!(templateName in oldTemplatesHashes[headerType]!) || hashes[templateName] != oldTemplatesHashes[headerType]![templateName]) {
+                    else if (
+                        !(templateName in oldTemplatesHashes[headerType]!) || 
+                        (hashes[templateName] != oldTemplatesHashes[headerType]![templateName])
+                    ) {
+                        placerCommands.push(`place ${templates[headerType][templateName]}`)
+                        changedTemplateCount += 1;
+                    }
+                    // if placing this template is forced by the debug config
+                    else if (request.arguments.alwaysReplace != null && request.arguments.alwaysReplace.includes(`${tcHeader} ${templateName}`)) {
                         placerCommands.push(`place ${templates[headerType][templateName]}`)
                     }
                 })
@@ -247,7 +261,7 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
 
             //= actually send to the placer =\\
 
-            if (placerCommands.length == 0) {
+            if (changedTemplateCount == 0) {
                 sendEvent('output',{
                     output: `No template changes detected since last compilation\n`,
                     category: "console",
