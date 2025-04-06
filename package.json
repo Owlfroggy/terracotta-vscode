@@ -1,15 +1,16 @@
 {
 	"name": "terracotta",
 	"displayName": "Terracotta",
-	"description": "Provide code editor features for the Terracotta language",
+	"description": "Provides code editor features for the Terracotta language",
 	"version": "0.0.1",
 	"publisher": "mrawesomeowl",
-	"repository": "",
+	"repository": "https://github.com/MrAwesomeOwl/terracotta-vscode",
+	"icon": "assets/icons/extension.png",
 	"engines": {
 		"vscode": "^1.74.0"
 	},
 	"categories": [
-		"Other"
+		"Programming Languages"
 	],
 	"activationEvents": [
 		"onLanguage:terracotta",

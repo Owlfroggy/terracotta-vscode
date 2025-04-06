@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" xmlns:bx="https://boxy-svg.com">
+  <defs>
+    <bx:grid x="0" y="0" width="100" height="100"/>
+  </defs>
+  <g transform="matrix(13.961604, 0, 0, 13.961604, 26.614334, 72.774902)" style="">
+    <path d="M 17 17.6 L 29 10.7 L 29 23.818 L 28.5 24.1 L 17 30.6 L 17 17.6 Z" style="stroke-width: 0px; transform-origin: 16px 12.6937px; fill: oklab(0.79 -0.052 -0.088);"/>
+  </g>
+  <polygon style="stroke: oklab(0.852 0.01 0.171 / 0); fill: oklab(0.79 0.068 0.116);" points="68.341 191.146 68.106 165.549 100 128.225 132.67 107.541 137.683 119.99 151.68 137.121 170.165 75.139 225.092 25.792 322.779 0 311.917 39.54 332.315 107.929 358.483 155.198 365.412 143.269 387.257 127.426 391.977 156.262 398.907 169.293 431.602 193.785 250.857 295"/>
+  <g transform="matrix(-13.961604, 0, 0, 13.961604, 233.999985, 237.306274)" style="transform-origin: 16px 12.6937px;">
+    <path d="M 17 17.6 L 17 30.6 L 28.5 24.1 L 29 23.818 L 29 10.7 L 17 17.6 Z" style="stroke-width: 0px; transform-origin: 16px 12.6937px; fill: oklab(0.79 -0.053 -0.088);"/>
+    <path d="M 17 17.6 L 17 30.6 L 28.5 24.1 L 29 23.818 L 29 10.7 L 17 17.6 Z" style="stroke-width: 0px; transform-origin: 16px 12.694px; fill: oklab(0.79 -0.053 -0.088);"/>
+  </g>
+</svg>
