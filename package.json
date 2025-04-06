@@ -46,7 +46,7 @@
 				{
 					"id": "terracotta-container",
 					"title": "Terracotta",
-					"icon": "resources/package-explorer.svg"
+					"icon": "assets/icons/logo-outline.svg"
 				}
 			]
 		},
