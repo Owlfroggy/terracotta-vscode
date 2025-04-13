@@ -204,7 +204,7 @@ async function setupCodeClient() {
 interface ItemLibraryFile {
 	id: string,
 	items: {[key: string]: {version: number, data: string}},
-	compilationMode: "directInsert" | "insertByVar"
+	compilationMode: "item" | "variable"
 	fileURL: URL,
 	projectURL: URL,
 }
@@ -1215,7 +1215,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 
 		try {
 			await fs.writeFile(url,JSON.stringify({
-				"compilationMode": "directInsert",
+				"compilationMode": "item",
 				"id": id,
 				"items": {},
 				"lastEditedWithExtensionVersion": EXTENSION_VERSION
