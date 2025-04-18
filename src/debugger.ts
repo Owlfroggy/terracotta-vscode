@@ -123,10 +123,12 @@ const requestHandlers: {[key: string]: (args: dap.Request) => void} = {
                 //     output: "Error:" + JSON.stringify(e) + e.toString(),
                 //     category: "stderr",
                 // })
-                sendEvent('output',{
-                    output: e.output[2].toString(),
-                    category: "stderr",
-                })
+                for (const message of e.output[2].toString().split("\n\n")) {
+                    sendEvent('output',{
+                        output: message+'\n\n',
+                        category: "stderr",
+                    })
+                }
                 process.exit(1)
             }
 
