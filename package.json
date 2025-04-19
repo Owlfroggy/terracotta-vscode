@@ -115,18 +115,6 @@
 			}
 		],
 		"menus": {
-			"editor/title/run": [
-				{
-					"command": "extension.terracotta.compileEditorSend",
-					"when": "resourceLangId == terracotta",
-					"group": "navigation@1"
-				},
-				{
-					"command": "extension.terracotta.compileEditorCopy",
-					"when": "resourceLangId == terracotta",
-					"group": "navigation@2"
-				}
-			],
 			"editor/title": [
 				{
 					"command": "extension.terracotta.importCodeValue",
@@ -135,14 +123,6 @@
 				}
 			],
 			"commandPalette": [
-				{
-					"command": "extension.terracotta.compileEditorSend",
-					"when": "resourceLangId == terracotta"
-				},
-				{
-					"command": "extension.terracotta.compileEditorCopy",
-					"when": "resourceLangId == terracotta"
-				},
 				{
 					"command": "extension.terracotta.itemEditor.showMigrationInfo",
 					"when": "false"
@@ -185,6 +165,14 @@
 				},
 				{
 					"command": "extension.terracotta.itemEditor.copyItemConstructor",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.compileEditorSend",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.compileEditorCopy",
 					"when": "false"
 				}
 			],
@@ -339,14 +327,12 @@
 				"command": "extension.terracotta.compileEditorSend",
 				"title": "Compile File & Send to CodeClient",
 				"category": "Terracotta",
-				"enablement": "!inDebugMode",
 				"icon": "$(run-above)"
 			},
 			{
 				"command": "extension.terracotta.compileEditorCopy",
 				"title": "Compile File & Copy to Clipboard",
 				"category": "Terracotta",
-				"enablement": "!inDebugMode",
 				"icon": "$(play)"
 			},
 			{
@@ -359,11 +345,6 @@
 				"title": "Import Code Value From Minecraft",
 				"category": "Terracotta",
 				"icon": "$(dfcodeitem-gamevalue)"
-			},
-			{
-				"command": "extension.terracotta.openItemLibraryEditor",
-				"title": "Open Item Library Editor",
-				"category": "Terracotta"
 			}
 		],
 		"debuggers": [
