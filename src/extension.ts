@@ -7,6 +7,7 @@ import { DebuggerExtraInfo } from "./debugger";
 import * as fs from "fs/promises"
 import { fileURLToPath, pathToFileURL, URL } from "url";
 import { Dict } from "./util/dict"
+import * as npc from "copy-paste"
 const stableStringify = require("json-stable-stringify")
 //why can't you just import like a normal????
 import * as NBTTypes from "nbtify"
@@ -1301,34 +1302,191 @@ export function activate(context: vscode.ExtensionContext) {
 		setupCodeClient();
 	})
 
-	vscode.commands.registerCommand("extension.terracotta.convertCodeItem",async () => {
+	vscode.commands.registerCommand("extension.terracotta.importCodeValue",async () => {
 		if (!await requireCodeClientConnection("Values cannot be imported","code")) {return}
-
-		let path = vscode.Uri.parse(vscode.extensions.getExtension("mrawesomeowl.terracotta")!.extensionUri.toString() + "/icons/loc.png")
-		console.log(path)
+		
 		let qp = vscode.window.createQuickPick()
 		qp.title = "Item Converter"
 		qp.placeholder = "Click on an item icon to convert it and copy it to the clipboard"
 		qp.ignoreFocusOut = true
-		qp.items = [
-			{
-				label: "$(cloud-download) Hotbar items:",
-				buttons: [
-					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-string")},
-					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
-					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
-					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
-					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
-					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-nothing")},
-					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-number")},
-					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-variable")},
-					{tooltip: "button",iconPath: new vscode.ThemeIcon("dfcodeitem-gamevalue")}
-				]
-			},
-			{
-				label: "$(code) Convert from Raw NBT",
+		qp.canSelectMany = false
+		qp.onDidAccept(() => {
+			npc.copy((qp.activeItems[0] as any).value)
+			qp.dispose()
+		})
+		qp.items = (await getCodeClientInventory()).map(nbt => {
+			const codeValueString = nbt.components?.["minecraft:custom_data"]?.["PublicBukkitValues"]?.["hypercube:varitem"]
+			if (!codeValueString) { return null }
+			
+			let codeValue: any
+			try {
+				codeValue = JSON.parse(codeValueString)
+			} catch (e) {return null}
+
+			function convertString(s: string): string {
+				return ('"' + s
+					.replaceAll("\\","\\\\")
+					.replaceAll('"','\\"')
+					.replaceAll("\n","\\n")
+					.replaceAll(/&(?=[abcdef0123456789lmnork])/g,"\&")
+					.replaceAll(/§(?=[abcdef0123456789lmnork])/g,"&")
+				+ '"')
 			}
-		]
+
+			function convertNumber(n: number): string {
+				return (n
+					.toFixed(3)
+					.replace(/(?<!^)(?:\.|(?<=[^0]))0+$/,"") //remove trailing decimal places
+				)
+			}
+
+			let converted: string
+			let args = []
+			switch (codeValue.id) {
+				case "num":
+					// %math expressions currently cannot be expressed in terracotta
+					if (codeValue.data.name.includes("%")) {return null}
+					converted = codeValue.data.name
+					break
+				case "txt": //string, NOT STYLED TEXT
+					converted = convertString(codeValue.data.name)
+					break
+				case "comp": //styled text
+					converted = "s"+convertString(codeValue.data.name)
+					break
+				case "loc":
+					args = [
+						convertNumber(codeValue.data.loc.x),
+						convertNumber(codeValue.data.loc.y),
+						convertNumber(codeValue.data.loc.z),
+					]
+					if (codeValue.data.loc.pitch !== 0 || codeValue.data.loc.yaw !== 0) {
+						args.push(
+							convertNumber(codeValue.data.loc.pitch),
+							convertNumber(codeValue.data.loc.yaw),
+						)
+					}
+					converted = `loc[${args.join(", ")}]`
+					break
+				case "vec":
+					args = [
+						convertNumber(codeValue.data.x),
+						convertNumber(codeValue.data.y),
+						convertNumber(codeValue.data.z),
+					]
+					converted = `vec[${args.join(", ")}]`
+					break
+				case "snd":
+					let constructorType = codeValue.data.key ? "csnd" : "snd"
+					args = [
+						convertString(codeValue.data.key ?? codeValue.data.sound)
+					]
+					if (codeValue.data.vol !== 2 || codeValue.data.variant) {
+						args.push(
+							convertNumber(codeValue.data.pitch),
+							convertNumber(codeValue.data.vol),
+						)
+						if (codeValue.data.variant) {
+							args.push(convertString(codeValue.data.variant))
+						}
+					} else if (codeValue.data.pitch !== 1) {
+						args.push(convertNumber(codeValue.data.pitch))
+					}
+					converted = `${constructorType}[${args.join(", ")}]`
+					break
+				case "part":
+					let fields: {[key: string]: string} = {}
+					const pdata = codeValue.data.data
+
+					if (codeValue.data.cluster.amount !== 1) {
+						fields.Amount = convertNumber(codeValue.data.cluster.amount)
+					}
+					if (codeValue.data.cluster.horizontal !== 0 || codeValue.data.cluster.vertical !== 0) {
+						fields.Spread = `[${convertNumber(codeValue.data.cluster.horizontal)}, ${convertNumber(codeValue.data.cluster.vertical)}]`
+					}
+
+					if (pdata.material !== undefined) {
+						fields.Material = convertString(pdata.material.toLowerCase())
+					}
+
+					if (pdata.roll !== undefined) {
+						if (pdata.roll !== 0) {
+							fields.Roll = convertNumber(pdata.roll)
+						}
+					}
+
+					if (pdata.rgb !== undefined) {
+						fields.Color = convertString("#"+pdata.rgb.toString(16).padStart(6,"0"))
+						if (pdata.rgb_fade !== undefined) {
+							fields["Fade Color"] = convertString("#"+pdata.rgb_fade.toString(16).padStart(6,"0"))
+						}
+						fields["Color Variation"] = convertNumber(pdata.colorVariation)
+					}
+
+					if (pdata.opacity !== undefined) {
+						if (pdata.opacity !== 100) {
+							fields.Opacity = convertNumber(pdata.opacity)
+						}
+					}
+
+					if (pdata.size !== undefined) {
+						if (pdata.size !== 1) {
+							fields.Size = convertNumber(pdata.size)
+						}
+						if (pdata.sizeVariation !== 0) {
+							fields["Size Variation"] = convertNumber(pdata.sizeVariation)
+						}
+					}
+
+					if (pdata.x !== undefined) {
+						if (pdata.x !== 1 || pdata.y !== 0 || pdata.z !== 0) {
+							let args = [
+								convertNumber(pdata.x),
+								convertNumber(pdata.y),
+								convertNumber(pdata.z),
+							]
+							fields.Motion = `vec[${args.join(", ")}]`
+						}
+						if (pdata.motionVariation !== 100) {
+							fields["Motion Variation"] = convertNumber(pdata.motionVariation)
+						}
+					}
+
+					if (Object.keys(fields).length > 0) {
+						converted = `par[${convertString(codeValue.data.particle)}, {${Object.entries(fields).map(e => `"${e[0]}" = ${e[1]}`).join(", ")}}]`
+					} else {
+						converted = `par[${convertString(codeValue.data.particle)}]`
+					}
+					break
+				case "var":
+					let varScope = codeValue.data.scope == "unsaved" ? "global" : codeValue.data.scope
+					let varName: string = codeValue.data.name
+					if (varName.match(/[^A-Za-z0-9_]/)) {
+						converted = `${varScope} [${convertString(varName)}]`
+					} else {
+						converted = `${varScope} ${varName}`
+					}
+					break
+				case "pot":
+					args = [
+						convertString(codeValue.data.pot),
+					]
+					if (codeValue.data.amp != 0 || codeValue.data.dur != 1000000) {
+						args.push(convertNumber(codeValue.data.amp+1))
+						if (codeValue.data.dur != 1000000) {
+							args.push(convertNumber(codeValue.data.dur))
+						}
+					}
+					converted = `pot[${args.join(", ")}]`
+					break
+				default:
+					return null
+			}
+			return {
+				label: `$(dfcodeitem-${codeValue.id}) ${converted}`,
+				value: converted
+			} as vscode.QuickPickItem
+		}).filter(v => v !== null)
 		qp.show()
 	})
 

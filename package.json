@@ -129,7 +129,7 @@
 			],
 			"editor/title": [
 				{
-					"command": "extension.terracotta.convertCodeItem",
+					"command": "extension.terracotta.importCodeValue",
 					"when": "resourceLangId == terracotta",
 					"group": "navigation@1"
 				}
@@ -160,7 +160,6 @@
 					"when": "view == terracotta.itemLibraryEditor && viewItem == library",
 					"group": "inline"
 				},
-
 				{
 					"command": "extension.terracotta.itemEditor.startEditingItem",
 					"when": "view == terracotta.itemLibraryEditor && viewItem == item",
@@ -181,8 +180,6 @@
 					"when": "view == terracotta.itemLibraryEditor && viewItem == outdatedItem",
 					"group": "inline"
 				},
-
-
 				{
 					"command": "extension.terracotta.itemEditor.addItemToLibrary",
 					"when": "view == terracotta.itemLibraryEditor && viewItem == library",
@@ -314,8 +311,8 @@
 				"category": "Terracotta"
 			},
 			{
-				"command": "extension.terracotta.convertCodeItem",
-				"title": "Terracottize Code Item (from Minecraft)",
+				"command": "extension.terracotta.importCodeValue",
+				"title": "Import Code Value From Minecraft",
 				"category": "Terracotta",
 				"icon": "$(dfcodeitem-gamevalue)"
 			},
@@ -412,63 +409,63 @@
 			}
 		],
 		"icons": {
-			"dfcodeitem-string": {
+			"dfcodeitem-txt": {
 				"description": "String",
 				"default": {
 					"fontPath": "/assets/icons/icons.woff",
 					"fontCharacter": "s"
 				}
 			},
-			"dfcodeitem-styledtext": {
+			"dfcodeitem-comp": {
 				"description": "Styled Text",
 				"default": {
 					"fontPath": "/assets/icons/icons.woff",
 					"fontCharacter": "t"
 				}
 			},
-			"dfcodeitem-number": {
-				"description": "number",
+			"dfcodeitem-num": {
+				"description": "Number",
 				"default": {
 					"fontPath": "/assets/icons/icons.woff",
 					"fontCharacter": "n"
 				}
 			},
-			"dfcodeitem-location": {
+			"dfcodeitem-loc": {
 				"description": "Location",
 				"default": {
 					"fontPath": "/assets/icons/icons.woff",
 					"fontCharacter": "l"
 				}
 			},
-			"dfcodeitem-vector": {
+			"dfcodeitem-vec": {
 				"description": "Vector",
 				"default": {
 					"fontPath": "/assets/icons/icons.woff",
 					"fontCharacter": "v"
 				}
 			},
-			"dfcodeitem-sound": {
+			"dfcodeitem-snd": {
 				"description": "Sound",
 				"default": {
 					"fontPath": "/assets/icons/icons.woff",
 					"fontCharacter": "S"
 				}
 			},
-			"dfcodeitem-particle": {
+			"dfcodeitem-part": {
 				"description": "Particle",
 				"default": {
 					"fontPath": "/assets/icons/icons.woff",
 					"fontCharacter": "P"
 				}
 			},
-			"dfcodeitem-potion": {
+			"dfcodeitem-pot": {
 				"description": "Potion",
 				"default": {
 					"fontPath": "/assets/icons/icons.woff",
 					"fontCharacter": "p"
 				}
 			},
-			"dfcodeitem-variable": {
+			"dfcodeitem-var": {
 				"description": "Variable",
 				"default": {
 					"fontPath": "/assets/icons/icons.woff",
@@ -513,6 +510,7 @@
 	"dependencies": {
 		"await-notify": "^1.0.1",
 		"base64-js": "^1.5.1",
+		"copy-paste": "^1.5.3",
 		"fix-esm": "^1.0.1",
 		"json-stable-stringify": "^1.1.1",
 		"mojangson": "^2.0.4",
@@ -525,6 +523,7 @@
 		"ws": "^8.18.0"
 	},
 	"devDependencies": {
+		"@types/copy-paste": "^1.1.33",
 		"@types/node": "^18",
 		"@types/vscode": "^1.73.0",
 		"@types/ws": "^8.5.11",

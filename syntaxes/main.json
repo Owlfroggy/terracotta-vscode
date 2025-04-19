@@ -534,7 +534,7 @@
             }
         },
         "operator": {
-            "match": "[=*+-/:?<>%^]|!=",
+            "match": "[=*+-/:?<>%^!]",
             "name": "keyword.operator.tc"
         },
         "advNameFunc": {
@@ -592,7 +592,7 @@
             ]
         },
         "controlKeyword": {
-            "match": "(?<=^|(;?\\W+))(if|repeat|else|while|for|in|on|to|return|returnmult|break|continue|endthread|not|wait)(?![\\w])",
+            "match": "(?<=^|(;?\\W+))(if|repeat|else|while|for|in|on|to|return|returnmult|break|continue|endthread|wait)(?![\\w])",
             "name": "keyword.control.tc"
         },
         "paramModifierKeyword": {
