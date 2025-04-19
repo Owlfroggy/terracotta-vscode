@@ -142,6 +142,50 @@
 				{
 					"command": "extension.terracotta.compileEditorCopy",
 					"when": "resourceLangId == terracotta"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.showMigrationInfo",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.addLibraryToProject",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.openFile",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.delete",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.addItemToLibrary",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.importItemToLibrary",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.startEditingItem",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.giveStaticCopy",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.rename",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.stopEditingItem",
+					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.itemEditor.copyItemConstructor",
+					"when": "false"
 				}
 			],
 			"view/item/context": [
