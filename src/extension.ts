@@ -1212,7 +1212,11 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		})
 
 		if (path == undefined) { return }
-		let url = new URL(path.toString())
+		let strPath = path.toString()
+		if (!strPath.endsWith(".tcil")) {
+			strPath += ".tcil"
+		}
+		let url = new URL(strPath)
 
 		try {
 			await fs.writeFile(url,JSON.stringify({
