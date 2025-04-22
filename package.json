@@ -79,16 +79,10 @@
 					],
 					"default": "verbose"
 				},
-				"terracotta.installPath": {
-					"scope": "application",
-					"type": "string",
-					"description": "The path to the Terracotta executable",
-					"default": ""
-				},
 				"terracotta.version": {
-					"scope": "application",
+					"scope": "window",
 					"type": "string",
-					"description": "The version of the language server/compiler to use",
+					"description": "The version of the language server/compiler to use. The recommended way to change this setting is through the 'Switch Language Version' command in the command palette.",
 					"default": ""
 				},
 				"terracotta.useSourceCode": {

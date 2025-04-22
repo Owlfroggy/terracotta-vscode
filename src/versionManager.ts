@@ -5,6 +5,7 @@ import * as zlib from "zlib"
 import { finished } from 'stream/promises';
 import { Readable } from 'stream';
 import { chmod } from 'fs/promises';
+import { compareVersions } from './util/compareVersions';
 
 export class VersionManager {
     constructor(
@@ -19,7 +20,9 @@ export class VersionManager {
 
     downloadableVersions: Set<string> = new Set();
     installedVersions: Set<string> = new Set();
-
+    latestDownloadableVersion: string = "0.0.0"
+    
+    downloadInProgress = false
     versionsFolderIsUsable: boolean = false
 
     private downloadInfo: {
@@ -38,6 +41,9 @@ export class VersionManager {
 
                 this.downloadableVersions.add(version)
                 this.downloadInfo[version] = {}
+                if (compareVersions(version,"0.0.0") == 1) {
+                    this.latestDownloadableVersion = version
+                }
 
                 for (const asset of Object.values(release.assets) as any[]) {
                     let platform = [...(asset.name as string).matchAll(/((?:darwin|linux|win32)-(?:x64|arm64))\.gz$/g)][0]?.[1]
@@ -80,6 +86,9 @@ export class VersionManager {
 
     /** will throw an error if it fails */
     async downloadVersion(version: string) {
+        if (this.downloadInProgress) {
+            throw new Error(`Cannot download version ${version} at this time because a download task is already in progress.`)
+        }
         if (!(version in this.downloadInfo)) {
             throw new Error(`Cannot download unknown version ${version}.`)
         }
@@ -92,13 +101,16 @@ export class VersionManager {
         }
         
         let versionDirUri = Uri.joinPath(this.versionsUri,version)
-        let destinationPath = Uri.joinPath(versionDirUri,`terracotta-${platform}${platform.startsWith('win32') ? '.exe' : ''}`).fsPath
+        let destinationPath = this.getExecutablePath(version)
 
+        this.downloadInProgress = true
         let result = await fetch(this.downloadInfo[version][platform])
         if (!result.ok) {
+            this.downloadInProgress = false
             throw new Error(`Failed to download Terracotta v${version}. Server responded with: ${result.status} ${result.statusText}`)
         }
         if (result.body == null) {
+            this.downloadInProgress = false
             throw new Error("Server responded with no data.")
         }
 
@@ -111,9 +123,16 @@ export class VersionManager {
         } catch (e) {
             // if something went wong, get rid of the folder so the extension doesn't think its installed
             await vscode.workspace.fs.delete(versionDirUri,{recursive: true, useTrash: true})
+            this.downloadInProgress = false
             throw new Error(`Failed to install Terracotta v${version}: ${e}`)
         }
 
         this.installedVersions.add(version)
+        this.downloadInProgress = false
+    }
+
+    getExecutablePath(version: string) {
+        let platform = `${process.platform}-${process.arch}`
+        return Uri.joinPath(this.versionsUri,version,`terracotta-${platform}${platform.startsWith('win32') ? '.exe' : ''}`).fsPath
     }
 }

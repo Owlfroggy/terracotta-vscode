@@ -13,13 +13,13 @@ const stableStringify = require("json-stable-stringify")
 import * as NBTTypes from "nbtify"
 const NBT: typeof NBTTypes = require("fix-esm").require("nbtify");
 import { VersionManager } from "./versionManager";
+import { compareVersions } from "./util/compareVersions";
 
 //the current DF_NBT value df uses. keeping this updated is required
 //to make sure item data doesnt break between minecraft versions
 const DF_NBT = 3955
 const EXTENSION_VERSION = "0.0.1"
 
-const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("terracotta")
 const debuggers: {[key: string]: vscode.DebugSession} = {}
 const validItemIds: Dict<boolean> = {}
 const itemIcons: Dict<string> = {}
@@ -58,16 +58,15 @@ let mainScriptPath: string
 let useSourceCode: boolean
 
 function updateTerracottaPath() {
-	const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("terracotta") //WHY DOES IT MAKE ME RUN THIS AGAIN TO GET UPDATED VALUE??? WHOSE IDEA WAS THIS
-	terracottaPath = (config.get("installPath") as string)
-	sourcePath = (config.get("sourcePath") as string).replaceAll("\\","\\\\").replaceAll('"','\\"').replaceAll("'","\\'")
+	// terracottaPath = (config.get("installPath") as string)
+	terracottaPath = versionManager.getExecutablePath(getConfigValue("version")!)
+
+	sourcePath = (getConfigValue("sourcePath") as string).replaceAll("\\","\\\\").replaceAll('"','\\"').replaceAll("'","\\'")
 	if (!sourcePath.endsWith(delimiter)) { sourcePath += delimiter }
 	mainScriptPath = sourcePath + `src${delimiter}main.ts`
-	
-	useSourceCode = config.get("useSourceCode")!
+	useSourceCode = getConfigValue("useSourceCode")!
 }
 
-updateTerracottaPath()
 
 //==========[ random util functions that really should be in a seperate file™ ]=========\
 
@@ -82,6 +81,10 @@ function ensurePathExistance(to: Dict<any>, ...path: string[]){
     }
 
     return currentLevel
+}
+
+function getConfigValue<T>(key: string): T | undefined {
+	return vscode.workspace.getConfiguration("terracotta").get<T>(key)
 }
 
 //==========[ codeclient ]=========\
@@ -1236,6 +1239,10 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 async function startLanguageServer() {
 	let server: cp.ChildProcess
 
+	if (client) {
+		client.stop()
+	}
+
 	// lmao i am so sorry
 	let serverOptions: ServerOptions
 
@@ -1278,12 +1285,21 @@ async function startLanguageServer() {
 			await fs.access(sourcePath, fs.constants.F_OK | fs.constants.R_OK | fs.constants.X_OK)
 		} else {
 			await fs.access(terracottaPath, fs.constants.F_OK | fs.constants.R_OK | fs.constants.X_OK)
-
 		}
 	} catch (e) {
-		vscode.window.showErrorMessage("Language server path is either invalid or non-existant. Check the setting 'terracotta.installPath'")
+		vscode.window.showErrorMessage(
+			"Terracotta binary is missing or inaccessible.",
+			{modal: true},
+			"Change Terracotta Version"
+		).then(chosen => {
+			if (chosen == "Change Terracotta Version") {
+				vscode.commands.executeCommand("extension.terracotta.changeVersion")
+			}
+		})
 		return
 	}
+
+	console.log(terracottaPath)
 	
 	client = new LanguageClient(
 		'terracotta',
@@ -1300,9 +1316,10 @@ export function activate(context: vscode.ExtensionContext) {
 	outputChannel = vscode.window.createOutputChannel("Terracotta LSP")
 	outputChannel.show()
 		
+	versionManager = new VersionManager(context)
+	updateTerracottaPath()
 	setupCodeClient()
 	startItemLibraryEditor(context)
-	versionManager = new VersionManager(context)
 
 	//= commands =\\
 	vscode.commands.registerCommand("extension.terracotta.refreshCodeClient",() => {
@@ -1502,13 +1519,20 @@ export function activate(context: vscode.ExtensionContext) {
 		let versionsToDisplay: {[key: string]: string} = {}
 		for (const version of versionManager.downloadableVersions) {
 			versionsToDisplay[version] = ""
+			if (version == versionManager.latestDownloadableVersion) {
+				versionsToDisplay[version] += " (latest release)"
+			}
+			if (!versionManager.installedVersions.has(version)) {
+				versionsToDisplay[version] += " (not installed)"
+			}
 		}
 		for (const version of versionManager.installedVersions) {
-			if (version == "-1.0.1") {
-				versionsToDisplay[version] = "(currently active)"
-			} else {
+			if (!versionsToDisplay[version]) {
 				versionsToDisplay[version] = ""
 			}
+			if (version == getConfigValue("version")) {
+				versionsToDisplay[version] += " (currently active)"
+			} 
 		}
 		let qp = vscode.window.createQuickPick()
 		let activeItems: vscode.QuickPickItem[] = []
@@ -1517,21 +1541,24 @@ export function activate(context: vscode.ExtensionContext) {
 				label: entry[0],
 				description: entry[1],
 			} as vscode.QuickPickItem
-			if (entry[0] == "-1.0.1") {
+			if (entry[0] == getConfigValue("version")) {
 				activeItems = [item]
 			}
 			return item
-		}).sort()
+		}).sort((a,b) => compareVersions(a.label,b.label)).reverse()
 		qp.show()
+		qp.ignoreFocusOut = true
 		qp.activeItems = activeItems
+		qp.title = "Switch Terracotta Version"
+		qp.placeholder = "Select a version to switch to. Versions will be downloaded automatically if needed."
 		qp.onDidAccept(() => {
 			qp.dispose()
 			let item = qp.activeItems[0]
 			if (!item) { return }
 			let version = item.label
-			if (versionManager.installedVersions.has(version)) {
-				//change verison
-			} else {
+
+			//install version if not there
+			if (!versionManager.installedVersions.has(version)) {
 				let confirmationQp = vscode.window.createQuickPick()
 				confirmationQp.items = [
 					{"label": "Download","description": "Download this version and switch to it."},
@@ -1548,11 +1575,19 @@ export function activate(context: vscode.ExtensionContext) {
 						try {
 							await versionManager.downloadVersion(version)
 						} catch (e) {
-							vscode.window.showErrorMessage(`${e}`)
+							vscode.window.showErrorMessage(`${e}`,{modal: true})
 						}
-						vscode.window.showInformationMessage(`Successfully downloaded Terracotta v${version}`)
+						vscode.window.showInformationMessage(`Successfully downloaded and switched to Terracotta v${version}`)
+						if (getConfigValue("version") == version) {
+							startLanguageServer()
+						} else {
+							vscode.workspace.getConfiguration("terracotta").update("version",version,vscode.ConfigurationTarget.Global)
+						}
 					}
 				})
+			} else {
+				vscode.workspace.getConfiguration("terracotta").update("version",version,vscode.ConfigurationTarget.Global)
+				vscode.window.showInformationMessage(`Switched to Terracotta v${version}`)
 			}
 		})
 	})
@@ -1626,13 +1661,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 	//= settings response =\\
 	vscode.workspace.onDidChangeConfiguration(event => {
-		if (event.affectsConfiguration("terracotta.installPath") || event.affectsConfiguration("terracotta.useSourceCode") || (useSourceCode && event.affectsConfiguration("terracotta.sourcePath"))) {
-			if (client == undefined) {
-				updateTerracottaPath()
-				startLanguageServer()
-			} else {
-				vscode.window.showWarningMessage("The Terracotta language server is already running. Please restart vscode for the new install path to take effect.")
-			}
+		if (event.affectsConfiguration("terracotta.version") || event.affectsConfiguration("terracotta.installPath") || event.affectsConfiguration("terracotta.useSourceCode") || (useSourceCode && event.affectsConfiguration("terracotta.sourcePath"))) {
+			updateTerracottaPath()
+			startLanguageServer()
 		}
 	})
 
