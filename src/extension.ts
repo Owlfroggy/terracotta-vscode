@@ -12,12 +12,12 @@ const stableStringify = require("json-stable-stringify")
 //why can't you just import like a normal????
 import * as NBTTypes from "nbtify"
 const NBT: typeof NBTTypes = require("fix-esm").require("nbtify");
+import { VersionManager } from "./versionManager";
 
 //the current DF_NBT value df uses. keeping this updated is required
 //to make sure item data doesnt break between minecraft versions
 const DF_NBT = 3955
 const EXTENSION_VERSION = "0.0.1"
-
 
 const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("terracotta")
 const debuggers: {[key: string]: vscode.DebugSession} = {}
@@ -41,6 +41,8 @@ let returnItemBeingImported: ((value: any) => void) | undefined
 let codeClientTask: "idle" | "compiling" = "idle"
 let codeClientConnected = false
 let codeClientAuthed = false
+
+let versionManager: VersionManager
 
 //==========[ file paths ]=========\
 
@@ -1300,6 +1302,7 @@ export function activate(context: vscode.ExtensionContext) {
 		
 	setupCodeClient()
 	startItemLibraryEditor(context)
+	versionManager = new VersionManager(context)
 
 	//= commands =\\
 	vscode.commands.registerCommand("extension.terracotta.refreshCodeClient",() => {
@@ -1492,6 +1495,66 @@ export function activate(context: vscode.ExtensionContext) {
 			} as vscode.QuickPickItem
 		}).filter(v => v !== null)
 		qp.show()
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.changeVersion",() => {
+		//key is the additional info that will be displayed next to the version
+		let versionsToDisplay: {[key: string]: string} = {}
+		for (const version of versionManager.downloadableVersions) {
+			versionsToDisplay[version] = ""
+		}
+		for (const version of versionManager.installedVersions) {
+			if (version == "-1.0.1") {
+				versionsToDisplay[version] = "(currently active)"
+			} else {
+				versionsToDisplay[version] = ""
+			}
+		}
+		let qp = vscode.window.createQuickPick()
+		let activeItems: vscode.QuickPickItem[] = []
+		qp.items = Object.entries(versionsToDisplay).map(entry => {
+			let item = {
+				label: entry[0],
+				description: entry[1],
+			} as vscode.QuickPickItem
+			if (entry[0] == "-1.0.1") {
+				activeItems = [item]
+			}
+			return item
+		}).sort()
+		qp.show()
+		qp.activeItems = activeItems
+		qp.onDidAccept(() => {
+			qp.dispose()
+			let item = qp.activeItems[0]
+			if (!item) { return }
+			let version = item.label
+			if (versionManager.installedVersions.has(version)) {
+				//change verison
+			} else {
+				let confirmationQp = vscode.window.createQuickPick()
+				confirmationQp.items = [
+					{"label": "Download","description": "Download this version and switch to it."},
+					{"label": "Cancel","description": "Cancel version switching."},
+				]
+				confirmationQp.title = "Download Confirmation"
+				confirmationQp.placeholder = "This version must be downloaded and installed to use it."
+				confirmationQp.show()
+				confirmationQp.activeItems = []
+				confirmationQp.onDidAccept(async () => {
+					confirmationQp.dispose()
+					if (confirmationQp.activeItems[0].label == "Download") {
+						vscode.window.showInformationMessage(`Downloading Terracotta v${version}`)
+						try {
+							await versionManager.downloadVersion(version)
+						} catch (e) {
+							vscode.window.showErrorMessage(`${e}`)
+						}
+						vscode.window.showInformationMessage(`Successfully downloaded Terracotta v${version}`)
+					}
+				})
+			}
+		})
 	})
 
 	//= set up debugger =\\

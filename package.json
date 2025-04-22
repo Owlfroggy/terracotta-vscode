@@ -85,6 +85,12 @@
 					"description": "The path to the Terracotta executable",
 					"default": ""
 				},
+				"terracotta.version": {
+					"scope": "application",
+					"type": "string",
+					"description": "The version of the language server/compiler to use",
+					"default": ""
+				},
 				"terracotta.useSourceCode": {
 					"scope": "application",
 					"type": "boolean",
@@ -321,8 +327,6 @@
 				"category": "Terracotta",
 				"icon": "$(files)"
 			},
-
-
 			{
 				"command": "extension.terracotta.compileEditorSend",
 				"title": "Compile File & Send to CodeClient",
@@ -345,6 +349,12 @@
 				"title": "Import Code Value From Minecraft",
 				"category": "Terracotta",
 				"icon": "$(dfcodeitem-gamevalue)"
+			},
+			{
+				"command": "extension.terracotta.changeVersion",
+				"title": "Switch Language Version",
+				"category": "Terracotta",
+				"icon": "$(versions)"
 			}
 		],
 		"debuggers": [
