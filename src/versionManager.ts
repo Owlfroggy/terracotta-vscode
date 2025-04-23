@@ -9,7 +9,8 @@ import { compareVersions } from './util/compareVersions';
 
 export class VersionManager {
     constructor(
-        private context: vscode.ExtensionContext
+        private context: vscode.ExtensionContext,
+        private onLoadedCallback: () => void
     ) {
         this.versionsUri = Uri.joinPath(this.context.globalStorageUri,"versions")
 
@@ -31,6 +32,8 @@ export class VersionManager {
             [key:string]: string
         }
     } = {}
+
+    private _loadStepsComplete = 0
 
     async fetchDownloadableVersions() {
         let releases = await fetch("https://api.github.com/repos/mrawesomeowl/terracotta/releases");
@@ -54,6 +57,10 @@ export class VersionManager {
             }
         } else {
             vscode.window.showErrorMessage("Failed to fetch Terracotta releases:",releases.statusText)
+        }
+        this._loadStepsComplete += 1;
+        if (this._loadStepsComplete >= 2) {
+            this.onLoadedCallback()
         }
     }
 
@@ -81,6 +88,11 @@ export class VersionManager {
             if ((versionFolder[1] & vscode.FileType.Directory) > 0) { 
                 this.installedVersions.add(versionFolder[0])
             }
+        }
+        
+        this._loadStepsComplete += 1;
+        if (this._loadStepsComplete >= 2) {
+            this.onLoadedCallback()
         }
     }
 

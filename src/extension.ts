@@ -1316,7 +1316,31 @@ export function activate(context: vscode.ExtensionContext) {
 	outputChannel = vscode.window.createOutputChannel("Terracotta LSP")
 	outputChannel.show()
 		
-	versionManager = new VersionManager(context)
+	versionManager = new VersionManager(context,async () => {
+		if (getConfigValue("version") == "") {
+			if (!versionManager.installedVersions.has(versionManager.latestDownloadableVersion)) {
+				await downloadAndChangeVersion(versionManager.latestDownloadableVersion)
+			} else {
+				vscode.workspace.getConfiguration("terracotta").update("version",versionManager.latestDownloadableVersion,vscode.ConfigurationTarget.Global)
+			}
+		}
+	})
+
+	async function downloadAndChangeVersion(version: string) {
+		vscode.window.showInformationMessage(`Downloading Terracotta v${version}`)
+		try {
+			await versionManager.downloadVersion(version)
+		} catch (e) {
+			vscode.window.showErrorMessage(`${e}`,{modal: true})
+		}
+		vscode.window.showInformationMessage(`Successfully downloaded and switched to Terracotta v${version}`)
+		if (getConfigValue("version") == version) {
+			startLanguageServer()
+		} else {
+			vscode.workspace.getConfiguration("terracotta").update("version",version,vscode.ConfigurationTarget.Global)
+		}
+	}
+	
 	updateTerracottaPath()
 	setupCodeClient()
 	startItemLibraryEditor(context)
@@ -1571,18 +1595,7 @@ export function activate(context: vscode.ExtensionContext) {
 				confirmationQp.onDidAccept(async () => {
 					confirmationQp.dispose()
 					if (confirmationQp.activeItems[0].label == "Download") {
-						vscode.window.showInformationMessage(`Downloading Terracotta v${version}`)
-						try {
-							await versionManager.downloadVersion(version)
-						} catch (e) {
-							vscode.window.showErrorMessage(`${e}`,{modal: true})
-						}
-						vscode.window.showInformationMessage(`Successfully downloaded and switched to Terracotta v${version}`)
-						if (getConfigValue("version") == version) {
-							startLanguageServer()
-						} else {
-							vscode.workspace.getConfiguration("terracotta").update("version",version,vscode.ConfigurationTarget.Global)
-						}
+						downloadAndChangeVersion(version)
 					}
 				})
 			} else {
@@ -1668,7 +1681,9 @@ export function activate(context: vscode.ExtensionContext) {
 	})
 
 	//= set up language server =\\
-	startLanguageServer()
+	if (getConfigValue("version") != "") {
+		startLanguageServer()
+	}
 }
 
 export function deactivate(): Thenable<void> | undefined {
