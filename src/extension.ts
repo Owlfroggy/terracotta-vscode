@@ -1315,11 +1315,30 @@ export function activate(context: vscode.ExtensionContext) {
 	outputChannel.show()
 		
 	versionManager = new VersionManager(context,async () => {
+		// automatically download latest version when first installing
 		if (getConfigValue("version") == "") {
-			if (!versionManager.installedVersions.has(versionManager.latestDownloadableVersion)) {
-				await downloadAndChangeVersion(versionManager.latestDownloadableVersion)
+			if (!versionManager.installedVersions.has(versionManager.latestDownloadableRelease)) {
+				await downloadAndChangeVersion(versionManager.latestDownloadableRelease)
 			} else {
-				vscode.workspace.getConfiguration("terracotta").update("version",versionManager.latestDownloadableVersion,vscode.ConfigurationTarget.Global)
+				vscode.workspace.getConfiguration("terracotta").update("version",versionManager.latestDownloadableRelease,vscode.ConfigurationTarget.Global)
+			}
+		}
+		// reminder if ur on an outdated version
+		else {
+			let currentVersion = getConfigValue("version") as string
+			if (
+				compareVersions(versionManager.latestDownloadableRelease,currentVersion) > 0 &&
+				!versionManager.installedVersions.has(versionManager.latestDownloadableRelease)
+			) {
+				vscode.window.showInformationMessage(
+					`A newer version of Terracotta is available: v${versionManager.latestDownloadableRelease}`,
+					"Update",
+					"Dismiss",
+				).then(option => {
+					if (option == "Update") {
+						downloadAndChangeVersion(versionManager.latestDownloadableRelease)
+					}
+				})
 			}
 		}
 	})
@@ -1541,7 +1560,7 @@ export function activate(context: vscode.ExtensionContext) {
 		let versionsToDisplay: {[key: string]: string} = {}
 		for (const version of versionManager.downloadableVersions) {
 			versionsToDisplay[version] = ""
-			if (version == versionManager.latestDownloadableVersion) {
+			if (version == versionManager.latestDownloadableRelease) {
 				versionsToDisplay[version] += " (latest release)"
 			}
 			if (!versionManager.installedVersions.has(version)) {

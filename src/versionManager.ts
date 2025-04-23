@@ -21,7 +21,7 @@ export class VersionManager {
 
     downloadableVersions: Set<string> = new Set();
     installedVersions: Set<string> = new Set();
-    latestDownloadableVersion: string = "0.0.0"
+    latestDownloadableRelease: string = "0.0.0"
     
     downloadInProgress = false
     versionsFolderIsUsable: boolean = false
@@ -54,8 +54,8 @@ export class VersionManager {
 
                 this.downloadableVersions.add(version)
                 this.downloadInfo[version] = {}
-                if (compareVersions(version,"0.0.0") == 1) {
-                    this.latestDownloadableVersion = version
+                if (compareVersions(version,"0.0.0") == 1 && version.split("-").length == 1) {
+                    this.latestDownloadableRelease = version
                 }
 
                 for (const asset of Object.values(release.assets) as any[]) {
