@@ -1371,6 +1371,12 @@ export function activate(context: vscode.ExtensionContext) {
 	setupCodeClient()
 	startItemLibraryEditor(context)
 
+	setInterval(() => {
+		if (!codeClientConnected) {
+			setupCodeClient()
+		}
+	},10000)
+
 	//= status bar =\\
 
 	const versionStatusBarItem = vscode.window.createStatusBarItem("terracottaVersion",vscode.StatusBarAlignment.Right,-300)
