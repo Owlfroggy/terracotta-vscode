@@ -157,4 +157,11 @@ export class VersionManager {
         let platform = `${process.platform}-${process.arch}`
         return Uri.joinPath(this.versionsUri,version,`terracotta-${platform}${platform.startsWith('win32') ? '.exe' : ''}`).fsPath
     }
+
+    isUpdateAvailable(currentVersion: string): boolean {
+        return (
+            compareVersions(this.latestDownloadableRelease,currentVersion) > 0 &&
+            !this.installedVersions.has(this.latestDownloadableRelease)
+        )
+    }
 }

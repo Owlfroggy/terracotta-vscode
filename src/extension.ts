@@ -1315,6 +1315,7 @@ export function activate(context: vscode.ExtensionContext) {
 	outputChannel.show()
 		
 	versionManager = new VersionManager(context,async () => {
+		updateVersionStatusBar()
 		// automatically download latest version when first installing
 		if (getConfigValue("version") == "") {
 			if (!versionManager.installedVersions.has(versionManager.latestDownloadableRelease)) {
@@ -1325,11 +1326,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 		// reminder if ur on an outdated version
 		else {
-			let currentVersion = getConfigValue("version") as string
-			if (
-				compareVersions(versionManager.latestDownloadableRelease,currentVersion) > 0 &&
-				!versionManager.installedVersions.has(versionManager.latestDownloadableRelease)
-			) {
+			if (versionManager.isUpdateAvailable(getConfigValue("version")!)) {
 				vscode.window.showInformationMessage(
 					`A newer version of Terracotta is available: v${versionManager.latestDownloadableRelease}`,
 					"Update",
@@ -1361,6 +1358,17 @@ export function activate(context: vscode.ExtensionContext) {
 	updateTerracottaPath()
 	setupCodeClient()
 	startItemLibraryEditor(context)
+
+	const versionStatusBarItem = vscode.window.createStatusBarItem("terracottaVersion",vscode.StatusBarAlignment.Right,-300)
+	versionStatusBarItem.name = "Terracotta Version"
+	versionStatusBarItem.command = "extension.terracotta.changeVersion"
+	versionStatusBarItem.show()
+	function updateVersionStatusBar() {
+		let currentVersion = getConfigValue("version") as string
+		let updateText = versionManager.isUpdateAvailable(currentVersion) ? " (update available)" : ""
+		versionStatusBarItem.text = `Terracotta v${currentVersion}${updateText}`
+	}
+	updateVersionStatusBar()
 
 	//= commands =\\
 	vscode.commands.registerCommand("extension.terracotta.refreshCodeClient",() => {
@@ -1692,6 +1700,7 @@ export function activate(context: vscode.ExtensionContext) {
 	//= settings response =\\
 	vscode.workspace.onDidChangeConfiguration(event => {
 		if (event.affectsConfiguration("terracotta.version") || event.affectsConfiguration("terracotta.installPath") || event.affectsConfiguration("terracotta.useSourceCode") || (useSourceCode && event.affectsConfiguration("terracotta.sourcePath"))) {
+			updateVersionStatusBar()
 			updateTerracottaPath()
 			startLanguageServer()
 		}
