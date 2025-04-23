@@ -542,7 +542,6 @@
 		"copy-paste": "^1.5.3",
 		"fix-esm": "^1.0.1",
 		"json-stable-stringify": "^1.1.1",
-		"mojangson": "^2.0.4",
 		"nbtify": "^2.2.0",
 		"tsc-esm-fix": "^3.1.2",
 		"vscode-debugprotocol": "^1.51.0",

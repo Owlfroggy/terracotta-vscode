@@ -156,8 +156,6 @@ const getCodeClientMode = makeCodeClientGetter<string>("mode","unknown",(message
 const getCodeClientInventory = makeCodeClientGetter<NBTTypes.ListTagLike>("inv",[],(message, returnValue) => {
 	let str = message.toString()
 	try {
-		// mojangson method
-		// const data = mojangson.parse(str)
 		const data = NBT.parse<NBTTypes.ListTagLike>(str)
 		returnValue(data)
 	} catch {}
