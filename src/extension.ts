@@ -1340,13 +1340,20 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	})
 
+	const downloadStatusBarItem = vscode.window.createStatusBarItem("terracottaDownload",vscode.StatusBarAlignment.Left,-301)
+
 	async function downloadAndChangeVersion(version: string) {
+		downloadStatusBarItem.text = `$(loading~spin) Donwloading Terracotta v${version}`
+		downloadStatusBarItem.show()
 		vscode.window.showInformationMessage(`Downloading Terracotta v${version}`)
 		try {
 			await versionManager.downloadVersion(version)
 		} catch (e) {
 			vscode.window.showErrorMessage(`${e}`,{modal: true})
+			downloadStatusBarItem.hide()
+			return
 		}
+		downloadStatusBarItem.hide()
 		vscode.window.showInformationMessage(`Successfully downloaded and switched to Terracotta v${version}`)
 		if (getConfigValue("version") == version) {
 			startLanguageServer()
