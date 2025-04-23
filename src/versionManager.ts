@@ -34,9 +34,19 @@ export class VersionManager {
     } = {}
 
     private _loadStepsComplete = 0
-
+    
     async fetchDownloadableVersions() {
-        let releases = await fetch("https://api.github.com/repos/mrawesomeowl/terracotta/releases");
+        let releases: Response
+        try {
+            releases = await fetch("https://api.github.com/repos/mrawesomeowl/terracotta/releases");
+        } catch (e) {
+            let desc: string | undefined = undefined
+            if (`${e}` == "InvalidArgumentError: Invalid URL protocol: the URL must start with `http:` or `https:`.") {
+                desc = "If you have a system proxy enabled, try turning that off and restarting VSCode. For whatever reason, VSCode has a tendency to throw a fit when it sees a system proxy."
+            }
+            vscode.window.showErrorMessage(`Error while fetching Terracotta releases: ${e}`,{modal: true, detail: desc})
+            return
+        }
         if (releases.ok) {
             for (const release of await releases.json() as any) {
                 if (!release.tag_name.startsWith("v")) {continue}
