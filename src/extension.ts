@@ -41,6 +41,7 @@ let returnItemBeingImported: ((value: any) => void) | undefined
 let codeClientTask: "idle" | "compiling" = "idle"
 let codeClientConnected = false
 let codeClientAuthed = false
+let updateCodeClientStatusBar: () => void
 
 let versionManager: VersionManager
 
@@ -171,6 +172,7 @@ async function setupCodeClient() {
     
 	codeClientWS.on("open",async () => {
 		codeClientConnected = true
+		updateCodeClientStatusBar()
 		//request write code permission if this doesnt already have it
 		let currentScopes = await getCodeClientScopes()
 
@@ -187,6 +189,7 @@ async function setupCodeClient() {
 
 		if (message == "auth") {
 			codeClientAuthed = true
+			updateCodeClientStatusBar()
 			return
 		}
 		// console.log("[codeclient inc]:",message)
@@ -199,6 +202,7 @@ async function setupCodeClient() {
 	codeClientWS.on("close",() => {
 		codeClientConnected = false
 		codeClientAuthed = false
+		updateCodeClientStatusBar()
 		console.log("CLOSED!")
 	})
 }
@@ -632,6 +636,7 @@ async function syncInventory() {
 		//this shouldn't be in the inv syncing function but i do not care
 		if (mode == "unknown") {
 			codeClientAuthed = false
+			updateCodeClientStatusBar()
 		}
 
 		//if just switching out of dev, stop editing all items
@@ -1313,7 +1318,7 @@ async function startLanguageServer() {
 export function activate(context: vscode.ExtensionContext) {
 	outputChannel = vscode.window.createOutputChannel("Terracotta LSP")
 	outputChannel.show()
-		
+
 	versionManager = new VersionManager(context,async () => {
 		updateVersionStatusBar()
 		// automatically download latest version when first installing
@@ -1366,6 +1371,8 @@ export function activate(context: vscode.ExtensionContext) {
 	setupCodeClient()
 	startItemLibraryEditor(context)
 
+	//= status bar =\\
+
 	const versionStatusBarItem = vscode.window.createStatusBarItem("terracottaVersion",vscode.StatusBarAlignment.Right,-300)
 	versionStatusBarItem.name = "Terracotta Version"
 	versionStatusBarItem.command = "extension.terracotta.changeVersion"
@@ -1377,9 +1384,31 @@ export function activate(context: vscode.ExtensionContext) {
 	}
 	updateVersionStatusBar()
 
+	const codeClientStatusBarItem = vscode.window.createStatusBarItem("terracottaCodeClient",vscode.StatusBarAlignment.Right,-299)
+	updateCodeClientStatusBar = function() {
+		if (codeClientAuthed && codeClientConnected) {
+			codeClientStatusBarItem.text = "$(check)CC Connected"
+			codeClientStatusBarItem.backgroundColor = undefined
+			codeClientStatusBarItem.command = undefined
+			codeClientStatusBarItem.show()
+		}
+		else if (codeClientConnected && !codeClientAuthed) {
+			codeClientStatusBarItem.text = "$(close)CC Not Authed"
+			codeClientStatusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground")
+			codeClientStatusBarItem.command = "extension.terracotta.info.codeClientAuth"
+			codeClientStatusBarItem.show()
+		} else if (!codeClientConnected) {
+			codeClientStatusBarItem.hide()
+		}
+	}
+
 	//= commands =\\
 	vscode.commands.registerCommand("extension.terracotta.refreshCodeClient",() => {
 		setupCodeClient();
+	})
+
+	vscode.commands.registerCommand("extension.terracotta.info.codeClientAuth",() => {
+		vscode.window.showInformationMessage("Terracotta is not authorized to interact with CodeClient. Please run `/auth` in Minecraft to enable full functionality.",{modal: true})
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.importCodeValue",async () => {

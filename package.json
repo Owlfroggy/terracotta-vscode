@@ -174,6 +174,10 @@
 				{
 					"command": "extension.terracotta.compileEditorCopy",
 					"when": "false"
+				},
+				{
+					"command": "extension.terracotta.info.codeClientAuth",
+					"when": "false"
 				}
 			],
 			"view/item/context": [
@@ -349,6 +353,11 @@
 				"title": "Switch Language Version",
 				"category": "Terracotta",
 				"icon": "$(versions)"
+			},
+			{
+				"command": "extension.terracotta.info.codeClientAuth",
+				"title": "Code Client Auth Info",
+				"category": "Terracotta"
 			}
 		],
 		"debuggers": [
