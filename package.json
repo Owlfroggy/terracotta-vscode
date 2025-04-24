@@ -78,13 +78,19 @@
 						"messages",
 						"verbose"
 					],
-					"default": "verbose"
+					"default": "messages"
 				},
 				"terracotta.version": {
 					"scope": "window",
 					"type": "string",
 					"description": "The version of the language server/compiler to use. The recommended way to change this setting is through the 'Terracotta v.X.X.X' button in the bottom right of the window.",
 					"default": ""
+				},
+				"terracotta.autoConnectToCodeClient": {
+					"scope": "window",
+					"type": "boolean",
+					"description": "Automatically attempt to connect to CodeClient every 10 seconds.",
+					"default": true
 				},
 				"terracotta.useSourceCode": {
 					"scope": "application",

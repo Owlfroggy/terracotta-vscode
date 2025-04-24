@@ -14,6 +14,7 @@ import * as NBTTypes from "nbtify"
 const NBT: typeof NBTTypes = require("fix-esm").require("nbtify");
 import { VersionManager } from "./versionManager";
 import { compareVersions } from "./util/compareVersions";
+import * as CodeClient from "./codeclientManager"
 
 //the current DF_NBT value df uses. keeping this updated is required
 //to make sure item data doesnt break between minecraft versions
@@ -38,9 +39,6 @@ let itemsBeingEdited: Dict<Dict<Dict<boolean>>> = {}
 let itemImportId: number | undefined //will be undefined if no item is being edited
 let returnItemBeingImported: ((value: any) => void) | undefined
 
-let codeClientTask: "idle" | "compiling" = "idle"
-let codeClientConnected = false
-let codeClientAuthed = false
 let updateCodeClientStatusBar: () => void
 
 let versionManager: VersionManager
@@ -86,125 +84,6 @@ function ensurePathExistance(to: Dict<any>, ...path: string[]){
 
 function getConfigValue<T>(key: string): T | undefined {
 	return vscode.workspace.getConfiguration("terracotta").get<T>(key)
-}
-
-//==========[ codeclient ]=========\
-
-let neededScopes = "write_code movement inventory"
-let codeClientWS: WebSocket
-
-
-function codeclientMessage(...message: string[]) {
-	if (codeClientWS == null || codeClientWS.readyState != WebSocket.OPEN) {
-		return
-	}
-	console.log("[codeclient out]:",message)
-	codeClientWS.send(message.join(""))
-}
-
-/*used to create functions for getting specific values from ccapi
-
-callback will run once for each incoming codeclient message that occurs after
-the initial command is sent. it will continue to run until returnValue is called
-or until it times out after 2 seconds pass.
-
-before returning anything, the callback should perform some kind of validation
-to prove that the message it recieved is actually connected to the proper request.
-*/
-
-function makeCodeClientGetter<R>(command: string, defaultValue: R, callback: (message: Buffer, returnValue: (value: R) => void) => void): (...args: string[]) => (Promise<R>) {
-	return async (...args: string[]): (Promise<R>) => {
-		return await new Promise<R>(resolve => {
-			let resolved = false
-	
-			codeclientMessage(command,...args)
-	
-			setTimeout(() => {
-				if (!resolved) {
-					codeClientWS.removeListener("message",internalCallback)
-					resolve(defaultValue)
-				}
-			},2000)
-
-			function returnValue(value: R) {
-				codeClientWS.removeListener("message",internalCallback)
-				resolve(value)
-			}
-	
-			function internalCallback(message: Buffer) {
-				callback(message,returnValue)
-			}
-	
-			codeClientWS.addListener("message",internalCallback)
-		})
-	}
-}
-
-const getCodeClientScopes = makeCodeClientGetter<string[] | null>("scopes",null,(message, returnValue) => {
-	let str = message.toString()
-	if (str.match("default")) {
-		returnValue(str.split(" "))
-	}
-})
-
-const getCodeClientMode = makeCodeClientGetter<string>("mode","unknown",(message, returnValue) => {
-	let str = message.toString()
-	if (str == "spawn" || str == "play" || str == "build" || str == "code") {
-		returnValue(str)
-	}
-})
-
-const getCodeClientInventory = makeCodeClientGetter<NBTTypes.ListTagLike>("inv",[],(message, returnValue) => {
-	let str = message.toString()
-	try {
-		const data = NBT.parse<NBTTypes.ListTagLike>(str)
-		returnValue(data)
-	} catch {}
-})
-
-async function setupCodeClient() {
-	if (codeClientWS) {
-		codeClientWS.close()
-	}
-
-	//client
-	codeClientWS = new WebSocket("ws://localhost:31375")
-    
-	codeClientWS.on("open",async () => {
-		codeClientConnected = true
-		updateCodeClientStatusBar()
-		//request write code permission if this doesnt already have it
-		let currentScopes = await getCodeClientScopes()
-
-		if (currentScopes != null) {
-			if (!currentScopes.includes("write_code") || !currentScopes.includes("movement") || !currentScopes.includes("inventory")) {
-				codeclientMessage(`scopes ${neededScopes}`)
-			}
-		}
-
-	})
-
-	codeClientWS.on("message",(message: RawData | string) => {
-		message = message.toString()
-
-		if (message == "auth") {
-			codeClientAuthed = true
-			updateCodeClientStatusBar()
-			return
-		}
-		// console.log("[codeclient inc]:",message)
-
-		for (const session of Object.values(debuggers)) {
-			session.customRequest("codeclientMessage",message)
-		}
-	})
-
-	codeClientWS.on("close",() => {
-		codeClientConnected = false
-		codeClientAuthed = false
-		updateCodeClientStatusBar()
-		console.log("CLOSED!")
-	})
 }
 
 //==========[ item library editor ]=========\
@@ -622,166 +501,23 @@ function addItemDataToLibrary(library: ItemLibraryFile, itemId: string, item: an
 	}
 }
 
-let lastMode: string | undefined
-async function syncInventory() {
-	if (codeClientTask != "idle") { return }
-	if (!codeClientAuthed) { return }
 
-	//only do inv syncing while in dev
-	let mode = await getCodeClientMode()
-	if (mode != "code") {
-		stopEditingAllItems()
-
-		//if auth is removed by the player
-		//this shouldn't be in the inv syncing function but i do not care
-		if (mode == "unknown") {
-			codeClientAuthed = false
-			updateCodeClientStatusBar()
-		}
-
-		//if just switching out of dev, stop editing all items
-		if (lastMode == "code") {
-			itemsBeingEdited = {}
-		}
-		return
-	}
-
-	let inventory = await getCodeClientInventory()
-	let modifiedLibraries: Map<ItemLibraryFile, true> = new Map()
-	let editingItemsInInventory: Dict<Dict<Dict<boolean>>> = {} //works the same as itemsBeingEdited
-
-	let invIndiciesToRemove: number[] = []
-	//first and second layer dicts are project and library id respectively
-	//key: item id = data if the item shoudl be updated, number representing what slot to remove if not
-	let itemsToUpdate: Dict<Dict<Dict<any>>> = {}
-	let itemIdSlots: Dict<number[]> = {}
-	let itemsWereModified = false
-
-	let i = -1
-	for (const item of inventory) {
-		i++
-		let tags = item.components?.["minecraft:custom_data"]?.PublicBukkitValues
-		let editorData = item.components?.["minecraft:custom_data"]?.terracottaEditorItem
-		//editor item
-		if (editorData && "itemid" in editorData && "libid" in editorData && "project" in editorData) {
-			let project = editorData["project"]
-			let libraryId = editorData["libid"]
-			let itemId = editorData["itemid"]
-
-			//if this is an editor item but its not for anything thats actually being edited, mark it for removal
-			if (!itemsBeingEdited?.[project]?.[libraryId]?.[itemId]) {
-				invIndiciesToRemove.push(i)
-				continue
-			}
-
-			//add to editingItemsInInventory list
-			ensurePathExistance(editingItemsInInventory, project, libraryId)[itemId] = true
-			//add to itemsToUpdate list
-			ensurePathExistance(itemsToUpdate, project, libraryId)
-
-			//if the same item is present in the inventory multiple times, don't let it be updated
-			if (itemId in itemsToUpdate[project]![libraryId]!) {
-				itemsToUpdate[project]![libraryId]![itemId] = false
-			} else {
-				itemsToUpdate[project]![libraryId]![itemId] = item
-				itemIdSlots[itemId] = []
-			}
-
-			itemIdSlots[itemId]!.push(i)
-		}
-		//importer item
-		else if (tags && "hypercube:__tc_ii_import" in tags) {
-			//import item
-			if (itemImportId && tags["hypercube:__tc_ii_import"] == itemImportId) {
-				if (returnItemBeingImported) {
-					returnItemBeingImported(item)
-				}
-			}
-			//this item's import data doesn't match the current id and is useless
-			//so the tag should be removed to avoid cluttering the item's nbt
-			else {
-				itemsWereModified = true
-				delete tags["hypercube:__tc_ii_import"]
-			}
-		}
-	}
-
-	//update items
-	for (const [project, libraries] of Object.entries(itemsToUpdate)) {
-		for (const [libraryId, items] of Object.entries(libraries!)) {
-			for (const [itemId, item] of Object.entries(items!)) {
-				//this means the item shouldn't be updated for whatever reason
-				if (item == false) {
-					invIndiciesToRemove.push(...itemIdSlots[itemId]!)
-				}
-				//actually save the item's changes
-				else {
-					let library = itemLibraries[project]![libraryId]!
-
-					try {
-						addItemDataToLibrary(library, itemId, item)
-					} catch (e) {
-						vscode.window.showErrorMessage("Could not add item", {
-							modal: true,
-							detail: `${e}`
-						})
-					}
-
-					modifiedLibraries.set(library, true)
-				}
-			}
-		}
-	}
-
-	//unmark items as being edtied if they have been removed from the inventory
-	let itemsWereRemoved = false
-	for (const [project, libraries] of Object.entries(itemsBeingEdited)) {
-		for (const [libraryId, items] of Object.entries(libraries!)) {
-			for (const itemId of Object.keys(items!)) {
-				if (!editingItemsInInventory[project]?.[libraryId]?.[itemId]) {
-					itemsWereRemoved = true
-					stopEditing(project, libraryId, itemId)
-				}
-			}
-		}
-	}
-
-	//remove editor items that aren't actively being edited
-	if (invIndiciesToRemove.length > 0) {
-		itemsWereModified = true
-		invIndiciesToRemove.forEach(i => inventory[i] = undefined) //set all slots marked for removal as undefined
-		inventory.filter(e => e) //actually remove undefined slots from the array
-	}
-
-	//save libraries
-	for (const library of modifiedLibraries.keys()) {
-		await saveLibrary(library)
-	}
-
-	//only bother updating if stuff actually changed
-	if (itemsWereModified || itemsWereRemoved) {
-		itemEditorProvider.refresh()
-	}
-	if (itemsWereModified) {
-		codeclientMessage("setinv " + NBT.stringify(inventory))
-	}
-}
 
 //returns `true` 
 async function requireCodeClientConnection(refusalMessage: string, requiredMode: "code" | undefined = undefined): Promise<boolean> {
-	if (!codeClientConnected) {
+	if (!CodeClient.isConnected) {
 		vscode.window.showErrorMessage(`${refusalMessage} because Terracotta could not connect to CodeClient.`,{},"Retry CodeClient Connection").then(value => {
 			if (value == "Retry CodeClient Connection") {
-				setupCodeClient()
+				CodeClient.tryConnection()
 			}
 		})
 		return false
-	} else if (!codeClientAuthed) {
+	} else if (!CodeClient.isAuthed) {
 		vscode.window.showErrorMessage(`${refusalMessage} because Terracotta lacks CodeClient permissions. Try running /auth in Minecraft.`)
 		return false
 	}
 	if (requiredMode !== undefined) {
-		let currentMode = await getCodeClientMode()
+		let currentMode = await CodeClient.getMode()
 		if (currentMode != requiredMode) {
 			vscode.window.showErrorMessage(`${refusalMessage} because you are not in ${requiredMode == "code" ? "dev" : requiredMode} mode.`)
 			return false
@@ -866,11 +602,6 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 	}
 	areLibrariesLoaded = true
 	itemEditorProvider.refresh()
-
-	//= start inventory synchronizer =\\
-	setInterval(syncInventory, 1000);
-	
-
 	
 	//= commmands =\\
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.showMigrationInfo",async (treeItem: ItemTreeItem) => {
@@ -895,7 +626,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 
 		let item = NBT.parse(treeItem.library.items[treeItem.itemId].data) as any
 		item.Count = new NBT.Int8(1)
-		codeclientMessage(`give ${NBT.stringify(item)}`)
+		CodeClient.sendMessage(`give ${NBT.stringify(item)}`)
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.delete",async (treeItem: vscode.TreeItem) => {
@@ -994,21 +725,18 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		editorData["libid"]   = treeItem.library.id,
 		editorData["project"] = treeItem.library.projectURL.toString(),
 
-		codeclientMessage(`give ${NBT.stringify(parsed)}`)
+		CodeClient.sendMessage(`give ${NBT.stringify(parsed)}`)
 		itemEditorProvider.refresh()
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.stopEditingItem",async (treeItem: ItemTreeItem) => {
-		//save latest changes
-		await syncInventory()
-		
 		//remove from currently editing list
 		let projectUrlString = treeItem.library.projectURL.toString()
 		stopEditing(projectUrlString,treeItem.library.id,treeItem.itemId)
 
-		//remove from minecraft inventory
+		//queue removal from minecraft inventory
 		let indiciesToRemove: number[] = []
-		let inventory = await getCodeClientInventory()
+		let inventory = await CodeClient.getInventory()
 
 		let i = -1;
 		for (const item of inventory) {
@@ -1024,9 +752,10 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 				}
 			}
 		}
+		CodeClient.queueInvIndiciesForClear(indiciesToRemove)
 
-		indiciesToRemove.forEach(i => inventory.splice(i,1))
-		codeclientMessage("setinv "+NBT.stringify(inventory))
+		//save latest changes
+		await CodeClient.heartbeat()
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.importItemToLibrary",async (treeItem: LibraryTreeItem) => {
@@ -1109,7 +838,10 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 				}
 			}
 		})
-		if (itemId == null) { return }
+		if (itemId == null) { 
+			itemImportId = undefined
+			return 
+		}
 
 
 		try {
@@ -1128,7 +860,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 		//if item was successfully added, remove from mc inv to avoid confusion
 		//remove from minecraft inventory
 		let indiciesToRemove: number[] = []
-		let inventory = await getCodeClientInventory()
+		let inventory = await CodeClient.getInventory()
 
 		let i = -1;
 		for (const item of inventory) {
@@ -1139,10 +871,9 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 			}
 		}
 
-		indiciesToRemove.forEach(i => inventory.splice(i,1))
-		codeclientMessage("setinv "+NBT.stringify(inventory))
-
 		itemImportId = undefined
+		CodeClient.queueInvIndiciesForClear(indiciesToRemove)
+		CodeClient.heartbeat()
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.itemEditor.addItemToLibrary",async (treeItem: LibraryTreeItem) => {
@@ -1368,14 +1099,144 @@ export function activate(context: vscode.ExtensionContext) {
 	}
 	
 	updateTerracottaPath()
-	setupCodeClient()
 	startItemLibraryEditor(context)
 
-	setInterval(() => {
-		if (!codeClientConnected) {
-			setupCodeClient()
+	//= codeclient stuff =\\
+	CodeClient.setAutoConnect(getConfigValue("autoConnectToCodeClient"))
+
+	CodeClient.attachCallback("codeModeLeft",async () => {
+		stopEditingAllItems()
+		// itemsBeingEdited = {}
+	})
+
+	CodeClient.attachCallback("messageRecieved",async (message: string) => {
+		for (const session of Object.values(debuggers)) {
+            session.customRequest("codeclientMessage",message)
+        }
+	})
+
+	CodeClient.attachCallback("connectionStatusChanged",async () => {
+		updateCodeClientStatusBar()
+	})
+
+	CodeClient.attachCallback("heartbeat",async (inventory: NBTTypes.ListTagLike) => {
+		let modifiedLibraries: Map<ItemLibraryFile, true> = new Map()
+		let editingItemsInInventory: Dict<Dict<Dict<boolean>>> = {} //works the same as itemsBeingEdited
+
+		let invIndiciesToRemove: number[] = []
+		let invIndiciesToClearImportTags: number[] = []
+		//first and second layer dicts are project and library id respectively
+		//key: item id = data if the item shoudl be updated, number representing what slot to remove if not
+		let itemsToUpdate: Dict<Dict<Dict<any>>> = {}
+		let itemIdSlots: Dict<number[]> = {}
+		let itemsWereModified = false
+
+		let i = -1
+		for (const item of inventory) {
+			i++
+			let tags = item.components?.["minecraft:custom_data"]?.PublicBukkitValues
+			let editorData = item.components?.["minecraft:custom_data"]?.terracottaEditorItem
+			//editor item
+			if (editorData && "itemid" in editorData && "libid" in editorData && "project" in editorData) {
+				let project = editorData["project"]
+				let libraryId = editorData["libid"]
+				let itemId = editorData["itemid"]
+
+				//if this is an editor item but its not for anything thats actually being edited, mark it for removal
+				if (!itemsBeingEdited?.[project]?.[libraryId]?.[itemId]) {
+					invIndiciesToRemove.push(i)
+					continue
+				}
+
+				//add to editingItemsInInventory list
+				ensurePathExistance(editingItemsInInventory, project, libraryId)[itemId] = true
+				//add to itemsToUpdate list
+				ensurePathExistance(itemsToUpdate, project, libraryId)
+
+				//if the same item is present in the inventory multiple times, don't let it be updated
+				if (itemId in itemsToUpdate[project]![libraryId]!) {
+					itemsToUpdate[project]![libraryId]![itemId] = false
+				} else {
+					itemsToUpdate[project]![libraryId]![itemId] = item
+					itemIdSlots[itemId] = []
+				}
+
+				itemIdSlots[itemId]!.push(i)
+			}
+			//importer item
+			else if (tags && "hypercube:__tc_ii_import" in tags) {
+				//import item
+				if (itemImportId && tags["hypercube:__tc_ii_import"] == itemImportId) {
+					if (returnItemBeingImported) {
+						returnItemBeingImported(item)
+					}
+				}
+				//this item's import data doesn't match the current id and is useless
+				//so the tag should be removed to avoid cluttering the item's nbt
+				else {
+					itemsWereModified = true
+					invIndiciesToClearImportTags.push(i)
+				}
+			}
 		}
-	},10000)
+
+		//update items
+		for (const [project, libraries] of Object.entries(itemsToUpdate)) {
+			for (const [libraryId, items] of Object.entries(libraries!)) {
+				for (const [itemId, item] of Object.entries(items!)) {
+					//this means the item shouldn't be updated for whatever reason
+					if (item == false) {
+						invIndiciesToRemove.push(...itemIdSlots[itemId]!)
+					}
+					//actually save the item's changes
+					else {
+						let library = itemLibraries[project]![libraryId]!
+
+						try {
+							addItemDataToLibrary(library, itemId, item)
+						} catch (e) {
+							vscode.window.showErrorMessage("Could not add item", {
+								modal: true,
+								detail: `${e}`
+							})
+						}
+
+						modifiedLibraries.set(library, true)
+					}
+				}
+			}
+		}
+
+		//unmark items as being edtied if they have been removed from the inventory
+		let itemsWereRemoved = false
+		for (const [project, libraries] of Object.entries(itemsBeingEdited)) {
+			for (const [libraryId, items] of Object.entries(libraries!)) {
+				for (const itemId of Object.keys(items!)) {
+					if (!editingItemsInInventory[project]?.[libraryId]?.[itemId]) {
+						itemsWereRemoved = true
+						stopEditing(project, libraryId, itemId)
+					}
+				}
+			}
+		}
+
+		CodeClient.queueInvIndiciesForImportRemoval(invIndiciesToClearImportTags)
+		//remove editor items that aren't actively being edited
+		if (invIndiciesToRemove.length > 0) {
+			itemsWereModified = true
+			CodeClient.queueInvIndiciesForClear(invIndiciesToRemove)
+		}
+
+		//save libraries
+		for (const library of modifiedLibraries.keys()) {
+			await saveLibrary(library)
+		}
+
+		//only bother updating if stuff actually changed
+		if (itemsWereModified || itemsWereRemoved) {
+			itemEditorProvider.refresh()
+		}
+	})
 
 	//= status bar =\\
 
@@ -1392,25 +1253,25 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const codeClientStatusBarItem = vscode.window.createStatusBarItem("terracottaCodeClient",vscode.StatusBarAlignment.Right,-299)
 	updateCodeClientStatusBar = function() {
-		if (codeClientAuthed && codeClientConnected) {
+		if (CodeClient.isConnected && CodeClient.isAuthed) {
 			codeClientStatusBarItem.text = "$(check)CC Connected"
 			codeClientStatusBarItem.backgroundColor = undefined
 			codeClientStatusBarItem.command = undefined
 			codeClientStatusBarItem.show()
 		}
-		else if (codeClientConnected && !codeClientAuthed) {
+		else if (CodeClient.isConnected && !CodeClient.isAuthed) {
 			codeClientStatusBarItem.text = "$(close)CC Not Authed"
 			codeClientStatusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground")
 			codeClientStatusBarItem.command = "extension.terracotta.info.codeClientAuth"
 			codeClientStatusBarItem.show()
-		} else if (!codeClientConnected) {
+		} else if (!CodeClient.isConnected) {
 			codeClientStatusBarItem.hide()
 		}
 	}
 
 	//= commands =\\
 	vscode.commands.registerCommand("extension.terracotta.refreshCodeClient",() => {
-		setupCodeClient();
+		CodeClient.tryConnection();
 	})
 
 	vscode.commands.registerCommand("extension.terracotta.info.codeClientAuth",() => {
@@ -1429,7 +1290,7 @@ export function activate(context: vscode.ExtensionContext) {
 			npc.copy((qp.activeItems[0] as any).value)
 			qp.dispose()
 		})
-		qp.items = (await getCodeClientInventory()).map(nbt => {
+		qp.items = (await CodeClient.getInventory()).map(nbt => {
 			const codeValueString = nbt.components?.["minecraft:custom_data"]?.["PublicBukkitValues"]?.["hypercube:varitem"]
 			if (!codeValueString) { return null }
 			
@@ -1680,34 +1541,34 @@ export function activate(context: vscode.ExtensionContext) {
 		//i would use an ACTUAL REQUEST for this but theres not a callback for that 
 		if (event.event == "requestInfo") {
 			itemsBeingEdited = {}
-			codeClientTask = "compiling"
+			CodeClient.setCurrentTask(CodeClient.TaskType.Compiling)
 			
 			//then return the actual info
 			event.session.customRequest("returnInfo",{
-				scopes: await getCodeClientScopes(),
-				mode: await getCodeClientMode(),
+				scopes: await CodeClient.getScopes(),
+				mode: await CodeClient.getMode(),
 				terracottaInstallPath: useSourceCode ? sourcePath : terracottaPath,
 				useSourceCode: useSourceCode
 			} as DebuggerExtraInfo)
 		}
 		else if (event.event == "switchToDev") {
-			codeclientMessage("mode code")
+			CodeClient.sendMessage("mode code")
 
 			let intervalId: any
 
 			function callback(message: string) {
 				if (message == "code") {
-					codeClientWS.removeListener("message",callback)
+					CodeClient.webSocket.removeListener("message",callback)
 					clearInterval(intervalId)
 					event.session.customRequest("responseNowInDev")
 				}
 			}
 
 			intervalId = setInterval(() => {
-				codeClientWS.send("mode")
+				CodeClient.webSocket.send("mode")
 			},500)
 
-			codeClientWS.on("message",callback)
+			CodeClient.webSocket.on("message",callback)
 		}
 	})
 
@@ -1719,13 +1580,13 @@ export function activate(context: vscode.ExtensionContext) {
 			vscode.window.showErrorMessage(event.body)
 		}
 		else if (event.event == "codeclient") {
-			codeclientMessage(event.body)
+			CodeClient.sendMessage(event.body)
 		}
 		else if (event.event == "redoScopes") {
-			codeclientMessage(`scopes ${neededScopes}`)
+			CodeClient.sendMessage(`scopes ${CodeClient.NEEDED_SCOPES}`)
 		}
 		else if (event.event == "refreshCodeClient") {
-			setupCodeClient()
+			CodeClient.tryConnection()
 		}
 	})
 
@@ -1735,7 +1596,7 @@ export function activate(context: vscode.ExtensionContext) {
 	})
 
 	vscode.debug.onDidTerminateDebugSession(session => {
-		codeClientTask = "idle"
+		CodeClient.setCurrentTask(CodeClient.TaskType.Idle)
 		delete debuggers[session.id]
 	})
 
@@ -1745,6 +1606,9 @@ export function activate(context: vscode.ExtensionContext) {
 			updateVersionStatusBar()
 			updateTerracottaPath()
 			startLanguageServer()
+		}
+		else if (event.affectsConfiguration("terracotta.autoConnectToCodeClient")) {
+			CodeClient.setAutoConnect(getConfigValue("autoConnectToCodeClient"))
 		}
 	})
 
