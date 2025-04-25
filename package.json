@@ -14,8 +14,6 @@
 		"Programming Languages"
 	],
 	"activationEvents": [
-		"onLanguage:terracotta",
-		"onDebug",
 		"workspaceContains:**/**.tc",
 		"workspaceContains:**/**.tcil"
 	],
@@ -57,7 +55,8 @@
 				{
 					"type": "tree",
 					"id": "terracotta.itemLibraryEditor",
-					"name": "Item Libraries"
+					"name": "Item Libraries",
+					"when": "terracotta.extensionActivated == true"
 				}
 			]
 		},

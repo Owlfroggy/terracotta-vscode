@@ -1050,6 +1050,8 @@ export function activate(context: vscode.ExtensionContext) {
 	outputChannel = vscode.window.createOutputChannel("Terracotta LSP")
 	outputChannel.show()
 
+	vscode.commands.executeCommand('setContext', 'terracotta.extensionActivated', true);
+
 	versionManager = new VersionManager(context,async () => {
 		updateVersionStatusBar()
 		// automatically download latest version when first installing
@@ -1622,6 +1624,7 @@ export function deactivate(): Thenable<void> | undefined {
 	if (!client) {
 		return undefined
 	}
+	vscode.commands.executeCommand('setContext', 'terracotta.extensionActivated', false);
 	console.log("DEACTIVATE")
 	return client.stop()
 }
