@@ -42,7 +42,8 @@ let versionManager: VersionManager
 //==========[ file paths ]=========\
 
 const delimiter = process.platform == "win32" ? "\\" : "/"
-let splitPath = __dirname.split("/")
+// Change .split("/") to split on both forward and backward slashes
+let splitPath = __dirname.split(/[/\\]/)
 splitPath.pop()
 let bunPath = (splitPath.join("/")+"/node_modules/.bin/bun").replace(/ /g,"\\ ").replace(/"/g,'\\"')
 
@@ -1082,8 +1083,23 @@ async function startLanguageServer() {
 				server = cp.exec(`cd "${sourcePath}"; ~/.deno/bin/deno run --allow-read --allow-env "${mainScriptPath}" server`,{maxBuffer: Infinity})
 			}
 			else if (process.platform == "win32") {
-				//add windows support later
+				//lil scuffed but it works so :thumbsup:
+				const userProfile = process.env.USERPROFILE || process.env.HOMEPATH || "";
+				const defaultDenoPath = path.join(userProfile, ".deno", "bin", "deno.exe");
 				
+				// Fall back to the global 'deno' command if the default path doesn't exist
+				let denoCmd = `"${defaultDenoPath}"`;
+				try {
+					await fs.access(defaultDenoPath);
+				} catch {
+					denoCmd = "deno";
+				}
+
+				// Normalize paths to turn double backslashes into valid single backslashes for cmd.exe
+				const cleanSourcePath = path.normalize(sourcePath);
+				const cleanMainScriptPath = path.normalize(mainScriptPath);
+				
+				server = cp.exec(`cd /d "${cleanSourcePath}" && ${denoCmd} run --allow-read --allow-env "${cleanMainScriptPath}" server`, {maxBuffer: Infinity})
 			}
 			return Promise.resolve(server)
 		}
@@ -1209,7 +1225,15 @@ async function buildToMinecraft(debugSession: vscode.DebugSession, launchArgumen
 		try {
 			let command: string 
 			if (useSourceCode) {
-				command = `cd "${terracottaInstallPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${terracottaInstallPath}src/main.ts"`
+				if (process.platform == "darwin") {
+					command = `cd "${terracottaInstallPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${terracottaInstallPath}src/main.ts"`
+				}
+				else if (process.platform == "win32") {
+					command = `cd "${terracottaInstallPath}/src" && deno run --allow-read --allow-env main.ts`
+				}
+				else {
+					// Who cares abt linux?
+				}
 			} else {
 				if (process.platform == "win32") {
 					command = `"${terracottaInstallPath.replaceAll('"','\\"')}"`
