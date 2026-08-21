@@ -1219,7 +1219,9 @@ async function buildToMinecraft(debugSession: vscode.DebugSession, launchArgumen
 			}
 			command += ` compile --project "${launchArguments.folder}" --includemeta --plotsize ${plotSize} --rank ${rank}`
 			bluelog("Compiling using command:\n"+command+"\n");
-			templates = JSON.parse(cp.execSync(command,{cwd: os.homedir()}).toString())
+			// if you're trying to output more than a gigabyte of compiled code you deserve failure
+			// also something else has probably broken before we even got here
+			templates = JSON.parse(cp.execSync(command,{cwd: os.homedir(),maxBuffer: 1024 * 1024 * 1024}).toString())
 		}
 		catch (e: any) {
 			// has to be split into chunks since for some reason
