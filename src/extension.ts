@@ -318,13 +318,27 @@ async function updateLibrary(fileURL: URL, projectURL: URL) {
 	urlStringToLibMap[fileURL.toString()] = entry
 }
 
+const activeLibraryWrites: Set<ItemLibraryFile> = new Set();
+const queuedLibraryWrites: Set<ItemLibraryFile> = new Set();
 async function saveLibrary(library: ItemLibraryFile) {
-	await fs.writeFile(library.fileURL,stableStringify({
-		id: library.id,
-		items: library.items,
-		compilationMode: library.compilationMode,
-		lastEditedWithExtensionVersion: EXTENSION_VERSION,
-	},{ space: '  ' }))
+	if (activeLibraryWrites.has(library)) {
+		queuedLibraryWrites.add(library);
+		return;
+	}
+	queuedLibraryWrites.delete(library);
+
+	activeLibraryWrites.add(library);
+	try {
+		await fs.writeFile(library.fileURL,stableStringify({
+			id: library.id,
+			items: library.items,
+			compilationMode: library.compilationMode,
+			lastEditedWithExtensionVersion: EXTENSION_VERSION,
+		},{ space: '  ' }))
+	} catch (e) {
+		vscode.window.showErrorMessage(`Failed to save item library '${library.id}' to '${library.fileURL}': ${e} ${e instanceof Error ? "\n"+e.stack : ""}`);
+	}
+	activeLibraryWrites.delete(library);
 }
 
 //i am way too lazy to seperate the validation and parsing into seperate functions
@@ -478,16 +492,17 @@ function addItemDataToLibrary(library: ItemLibraryFile, itemId: string, snbt: st
 	}
 }
 
-function refreshLibraryItemImage(library: ItemLibraryFile, itemId: string) {
+/**
+ * this will NOT save the library OR update the treeview
+ */
+async function refreshLibraryItemImage(library: ItemLibraryFile, itemId: string) {
 	//TODO: require tcclient connection
 	//TODO: check DF_NBT
 	if (!(itemId in library.items)) return;
 	let item = library.items[itemId];
-	TCClient.sendRequest(new TCClient.RenderItemA2CRequest(item.data),async (_, response: TCClient.RenderItemA2CResponse) => {
-		if (response instanceof TCClient.ErrorResponse) return;
-		item.image = response.image;
-		await saveLibrary(library);
-	})
+	let response = await TCClient.sendRequestAsync(new TCClient.RenderItemA2CRequest(item.data));
+	if (!(response instanceof TCClient.RenderItemA2CResponse)) return;
+	item.image = response.image;
 }
 
 
@@ -556,6 +571,11 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 
 	//item editor can only work in a workspace
 	if (vscode.workspace.workspaceFolders == undefined) { return }
+
+	// execute queued library saves every 2 seconds
+	setInterval(() => {
+		for (const lib of [...queuedLibraryWrites.values()]) saveLibrary(lib);
+	}, 2000)
 
 	//launch provider
 	itemEditorProvider = new ItemLibraryEditorProvider(context)
@@ -906,12 +926,14 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 			let item = e[0];
 			qp.hide();
 			if (item == importButton) {
+				let renderPromises: Promise<any>[] = [];
+
 				// finalize import
 				for (const [qpItem, libId] of qpItemLibIds) {
 					try {
 						let snbt = qpItemSnbts.get(qpItem)!;
 						addItemDataToLibrary(treeItem.library,libId,snbt);
-						refreshLibraryItemImage(treeItem.library,libId)
+						renderPromises.push(refreshLibraryItemImage(treeItem.library,libId));
 					} catch (e) {
 						vscode.window.showErrorMessage("Could not import item",{
 							modal: true,
@@ -920,6 +942,7 @@ async function startItemLibraryEditor(context: vscode.ExtensionContext) {
 					}
 				}
 
+				await Promise.all(renderPromises);
 				
 				await saveLibrary(treeItem.library)
 				itemEditorProvider.refresh()
@@ -1695,11 +1718,16 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
-	if (!client) {
-		return undefined
+	let promises: Promise<void>[] = [];
+	// execute all queued library writes immediately
+	for (const lib of queuedLibraryWrites) 
+		promises.push(saveLibrary(lib));
+
+	if (client) {
+		client.sendNotification("terracotta/exit");
+		vscode.commands.executeCommand('setContext', 'terracotta.extensionActivated', false);
+		promises.push(client.stop());
 	}
-	client.sendNotification("terracotta/exit");
-	vscode.commands.executeCommand('setContext', 'terracotta.extensionActivated', false);
 	console.log("DEACTIVATE")
-	return client.stop()
+	return Promise.all(promises).then(() => {});
 }
