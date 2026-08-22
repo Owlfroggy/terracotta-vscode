@@ -1,8 +1,6 @@
 # Terracotta VSCode Extension For Open VSX
 
-## NOTE: If you have previously manually installed a copy of the extension from a .vsix file, remove that before installing this
-
-Provides the following features for Terracotta:
+Provides the following features for Terracotta on VSCode forks:
 - Autocomplete/Intellisense
 - Syntax highlighting
 - Signature help
@@ -13,4 +11,5 @@ For more information on Terracotta, see https://owlfroggy.github.io/terracotta-d
 
 ---
 This fork aims to support the Open VSX marketplace due to modded VSCode versions being unable to use the official one.
-Codium is what I use btw.
+Installation can be done as described on the wiki.
+Note that you may get slightly different builds from the official VSCode market.
