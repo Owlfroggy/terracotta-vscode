@@ -1085,6 +1085,7 @@ async function startLanguageServer() {
 				//add windows support later
 				
 			}
+			server = cp.exec(`deno run --allow-read --allow-env "${mainScriptPath}" server`)
 			return Promise.resolve(server)
 		}
 	} else {
