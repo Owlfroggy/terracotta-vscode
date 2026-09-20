@@ -1210,7 +1210,7 @@ async function buildToMinecraft(debugSession: vscode.DebugSession, launchArgumen
 		try {
 			let command: string 
 			if (useSourceCode) {
-				command = `cd "${terracottaInstallPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${terracottaInstallPath}src/main.ts"`
+				command = `cd "${terracottaInstallPath}"; deno run --allow-read --allow-env "${terracottaInstallPath}src/main.ts"`
 			} else {
 				if (process.platform == "win32") {
 					command = `"${terracottaInstallPath.replaceAll('"','\\"')}"`
