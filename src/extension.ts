@@ -1601,8 +1601,25 @@ export function activate(context: vscode.ExtensionContext) {
 		qp.show();
 	})
 
-	vscode.commands.registerCommand("extension.terracotta.changeVersion",() => {
+	vscode.commands.registerCommand("extension.terracotta.changeVersion",async () => {
 		//key is the additional info that will be displayed next to the version
+		console.log(useSourceCode);
+		if (useSourceCode) {
+			let chosen = await vscode.window.showErrorMessage(
+				"The version switcher menu cannot be used while the Use Source Code setting is enabled.",
+				{modal: true,detail: "Choosing 'Disable' will turn off the Use Source Code setting, returning you to official Terracotta versions.\n\nUse Source Code can be toggled in VSCode's settings at any time."},
+				"Disable", "Open Settings"
+			);
+			if (chosen == "Disable") {
+				vscode.workspace.getConfiguration("terracotta").update("useSourceCode",false,vscode.ConfigurationTarget.Global);
+				vscode.window.showInformationMessage("The Use Source Code setting was disabled.");
+			} else if (chosen == "Open Settings") {
+				vscode.commands.executeCommand('workbench.action.openSettings', 'terracotta.useSourceCode');
+				return;
+			} else {
+				return;
+			}
+		}
 		let versionsToDisplay: {[key: string]: string} = {}
 		for (const version of versionManager.downloadableVersions) {
 			versionsToDisplay[version] = ""
