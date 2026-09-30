@@ -1500,7 +1500,7 @@ export function activate(context: vscode.ExtensionContext) {
 		let currentVersion = getConfigValue("version") as string
 		let updateText = versionManager.isUpdateAvailable(currentVersion) ? " (update available)" : ""
 		if (useSourceCode) {
-			versionStatusBarItem.text = `Terracotta vLOCAL`;
+			versionStatusBarItem.text = `Terracotta vSOURCE`;
 		} else {
 			versionStatusBarItem.text = `Terracotta v${currentVersion}${updateText}`
 		}
