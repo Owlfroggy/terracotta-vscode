@@ -1102,7 +1102,7 @@ async function startLanguageServer() {
 	if (useSourceCode) {
 		serverOptions = async function() {
 			if (process.platform == "darwin") {
-				server = cp.exec(`cd "${sourcePath}"; ~/.deno/bin/deno run --allow-read --allow-env "${mainScriptPath}" server`,{maxBuffer: Infinity})
+				server = cp.exec(`cd "${sourcePath}"; deno run --allow-read --allow-env "${mainScriptPath}" server`,{maxBuffer: Infinity})
 			}
 			else if (process.platform == "win32") {
 				//add windows support later
@@ -1232,7 +1232,7 @@ async function buildToMinecraft(debugSession: vscode.DebugSession, launchArgumen
 		try {
 			let command: string 
 			if (useSourceCode) {
-				command = `cd "${terracottaInstallPath}"; ~/.deno/bin/deno run --allow-read --allow-env "${terracottaInstallPath}src/main.ts"`
+				command = `cd "${terracottaInstallPath}"; deno run --allow-read --allow-env "${terracottaInstallPath}src/main.ts"`
 			} else {
 				if (process.platform == "win32") {
 					command = `"${terracottaInstallPath.replaceAll('"','\\"')}"`
