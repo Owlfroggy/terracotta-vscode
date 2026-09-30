@@ -1105,8 +1105,7 @@ async function startLanguageServer() {
 				server = cp.exec(`cd "${sourcePath}"; deno run --allow-read --allow-env "${mainScriptPath}" server`,{maxBuffer: Infinity})
 			}
 			else if (process.platform == "win32") {
-				//add windows support later
-				
+				server = cp.exec(`cd /d "${sourcePath}" && deno run --allow-read --allow-env "${mainScriptPath}" server`,{maxBuffer: Infinity})
 			}
 			return Promise.resolve(server)
 		}
@@ -1230,15 +1229,21 @@ async function buildToMinecraft(debugSession: vscode.DebugSession, launchArgumen
 		// compile the project and get resulting templates
 		let templates: Dict<any>
 		try {
-			let command: string 
-			if (useSourceCode) {
-				command = `cd "${terracottaInstallPath}"; deno run --allow-read --allow-env "${terracottaInstallPath}src/main.ts"`
+			let command: string;
+			let installPath: string;
+			if (process.platform == "win32") {
+				installPath = terracottaInstallPath.replaceAll('"','\\"');
 			} else {
+				installPath = terracottaInstallPath.replaceAll("\\","\\\\").replaceAll('"','\\"');
+			}
+			if (useSourceCode) {
 				if (process.platform == "win32") {
-					command = `"${terracottaInstallPath.replaceAll('"','\\"')}"`
+					command = `cd /d "${installPath}" && deno run --allow-read --allow-env "${installPath}src\\main.ts"`
 				} else {
-					command = `"${terracottaInstallPath.replaceAll("\\","\\\\").replaceAll('"','\\"')}"`
+					command = `cd "${installPath}"; deno run --allow-read --allow-env "${installPath}src/main.ts"`
 				}
+			} else {
+				command = `"${installPath}"`;
 			}
 			command += ` compile --project "${launchArguments.folder}" --includemeta --plotsize ${plotSize} --rank ${rank}`
 			bluelog("Compiling using command:\n"+command+"\n");
