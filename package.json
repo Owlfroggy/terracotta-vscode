@@ -96,7 +96,7 @@
 					"scope": "application",
 					"type": "boolean",
 					"description": "Whether or not to directly run the Terracotta source code when compiling or starting the language server",
-					"default": ""
+					"default": false
 				},
 				"terracotta.sourcePath": {
 					"scope": "application",

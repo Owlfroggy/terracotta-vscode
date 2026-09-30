@@ -50,7 +50,7 @@ let terracottaPath: string
 let sourcePath: string
 let mainScriptPath: string
 
-let useSourceCode: boolean
+let useSourceCode: boolean = false;
 
 function updateTerracottaPath() {
 	// terracottaPath = (config.get("installPath") as string)
@@ -1494,7 +1494,11 @@ export function activate(context: vscode.ExtensionContext) {
 	function updateVersionStatusBar() {
 		let currentVersion = getConfigValue("version") as string
 		let updateText = versionManager.isUpdateAvailable(currentVersion) ? " (update available)" : ""
-		versionStatusBarItem.text = `Terracotta v${currentVersion}${updateText}`
+		if (useSourceCode) {
+			versionStatusBarItem.text = `Terracotta vLOCAL`;
+		} else {
+			versionStatusBarItem.text = `Terracotta v${currentVersion}${updateText}`
+		}
 	}
 	updateVersionStatusBar()
 
@@ -1693,9 +1697,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 	//= settings response =\\
 	vscode.workspace.onDidChangeConfiguration(event => {
-		if (event.affectsConfiguration("terracotta.version") || event.affectsConfiguration("terracotta.installPath") || event.affectsConfiguration("terracotta.useSourceCode") || (useSourceCode && event.affectsConfiguration("terracotta.sourcePath"))) {
-			updateVersionStatusBar()
+		if (event.affectsConfiguration("terracotta.version") || event.affectsConfiguration("terracotta.useSourceCode") || (useSourceCode && event.affectsConfiguration("terracotta.sourcePath"))) {
 			updateTerracottaPath()
+			updateVersionStatusBar()
 			startLanguageServer()
 		}
 		else if (event.affectsConfiguration("terracotta.autoConnectToTerracottaClient")) {
